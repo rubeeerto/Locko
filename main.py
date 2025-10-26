@@ -845,7 +845,7 @@ async def back_to_admin_menu(message: Message):
     else:
         await message.answer('Вы не являетесь админом.')
 
-@dp.message_handler(text='Помощь 💻')
+@dp.message_handler(text='Допомога 💻')
 @dp.throttled(anti_flood, rate=3)
 async def help(message: types.Message):
     # Проверяем, что сообщение из личного чата
@@ -874,7 +874,7 @@ async def help(message: types.Message):
     inline_keyboard = inline_keyboard.add(code_sub)
     await bot.send_message(message.chat.id, "Виникли питання? Звертайся до @ABOBA", disable_web_page_preview=True, parse_mode="HTML", reply_markup=inline_keyboard)
 
-@dp.message_handler(text='🎯 Осталось атак')
+@dp.message_handler(text='🎯 Залишилося атак')
 async def check_attacks(message: types.Message):
     # Проверяем, что сообщение из личного чата
     if message.chat.type != 'private':
@@ -910,7 +910,7 @@ async def check_attacks(message: types.Message):
     
     await message.answer(message_text)
 
-@dp.message_handler(text='👥 Реферальная программа')
+@dp.message_handler(text='👥 Реферальна програма')
 async def referral_program(message: types.Message):
     # Проверяем, что сообщение из личного чата
     if message.chat.type != 'private':
@@ -979,7 +979,7 @@ async def referral_program(message: types.Message):
     
     await message.answer(message_text, parse_mode='HTML', reply_markup=keyboard)
 
-@dp.message_handler(text='📱Начать атаку')
+@dp.message_handler(text='📱Почати атаку')
 async def start_attack_prompt(message: Message):
     # Проверяем, что сообщение из личного чата
     if message.chat.type != 'private':
@@ -1208,7 +1208,7 @@ async def handle_phone_number(message: Message):
         return  # Игнорируем сообщения из групп
     
     # Игнорируем текст кнопок
-    button_texts = ['Помощь 💻', '🎯 Осталось атак', '👥 Реферальная программа', '📱Начать атаку', 'Промокод 🎁']
+    button_texts = ['Допомога 💻', '🎯 Залишилося атак', '👥 Реферальна програма', '📱Почати атаку', 'Промокод 🎁']
     if message.text in button_texts:
         return
     
