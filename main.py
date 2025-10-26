@@ -1207,6 +1207,11 @@ async def handle_phone_number(message: Message):
     if message.chat.type != 'private':
         return  # Игнорируем сообщения из групп
     
+    # Игнорируем текст кнопок
+    button_texts = ['Помощь 💻', '🎯 Осталось атак', '👥 Реферальная программа', '📱Начать атаку', 'Промокод 🎁']
+    if message.text in button_texts:
+        return
+    
     user_id = message.from_user.id
     
     if not await user_exists(user_id):
