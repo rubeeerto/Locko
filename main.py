@@ -309,7 +309,7 @@ async def start(message: Message):
             return
         
         welcome_text = f"🎉 Вітаю, {message.from_user.first_name}!\n\n"
-        welcome_text += "🎯 Ви в головному меню.\n\n"
+        welcome_text += "🔫 Готовий до роботи!\n\n"
         
         await bot.send_message(user_id, welcome_text, reply_markup=profile_keyboard, parse_mode='HTML')
 
