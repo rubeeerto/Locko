@@ -196,10 +196,9 @@ async def anti_flood(*args, **kwargs):
 # Обновляем клавиатуры
 profile_button = types.KeyboardButton('📱Почати атаку')
 referal_button = types.KeyboardButton('Допомога 💻')
-attacks_button = types.KeyboardButton('🎯 Залишилося атак')
 referral_program_button = types.KeyboardButton('👥 Реферальна програма')
 # promo_button = types.KeyboardButton('Промокод 🎁')  # Прибрано
-profile_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True).add(profile_button, referal_button).add(attacks_button, referral_program_button)
+profile_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True).add(profile_button, referal_button).add(referral_program_button)
 
 admin_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
 admin_keyboard.add("Надіслати повідомлення користувачам")
@@ -870,45 +869,10 @@ async def help(message: types.Message):
         return
     
     inline_keyboard = types.InlineKeyboardMarkup()
-    code_sub = types.InlineKeyboardButton(text='Чат 💬', url='https://t.me/+tod0WSFEpEQ2ODcy')
+    code_sub = types.InlineKeyboardButton(text='Канал 💬', url='https://t.me/+tod0WSFEpEQ2ODcy')
     inline_keyboard = inline_keyboard.add(code_sub)
     await bot.send_message(message.chat.id, "Виникли питання? Звертайся до @ABOBA", disable_web_page_preview=True, parse_mode="HTML", reply_markup=inline_keyboard)
 
-@dp.message_handler(text='🎯 Залишилося атак')
-async def check_attacks(message: types.Message):
-    # Проверяем, что сообщение из личного чата
-    if message.chat.type != 'private':
-        return
-    
-    user_id = message.from_user.id
-    
-    if not await user_exists(user_id):
-        await message.answer("Для використання бота потрібно натиснути /start")
-        return
-    
-    async with db_pool.acquire() as conn:
-        result = await conn.fetchrow("SELECT block FROM users WHERE user_id = $1", user_id)
-    
-    if result and result['block'] == 1:
-        await message.answer("Вас заблоковано і ви не можете користуватися ботом.")
-        return
-    
-    if not await check_subscription_status(user_id):
-        await message.answer("Ви відписалися від каналу. Підпишіться, щоб продовжити використання бота.", reply_markup=checkSubMenu)
-        return
-
-    can_attack, attacks_left, promo_attacks, referral_attacks = await check_attack_limits(user_id)
-    total_attacks = attacks_left + promo_attacks + referral_attacks
-    
-    message_text = f"🎯 У вас осталось атак: {total_attacks}\n"
-    if promo_attacks > 0 or referral_attacks > 0:
-        message_text += f"├ Обычные: {attacks_left}\n"
-        if promo_attacks > 0:
-            message_text += f"├ От промокодов: {promo_attacks}\n"
-        if referral_attacks > 0:
-            message_text += f"└ От рефералов: {referral_attacks}"
-    
-    await message.answer(message_text)
 
 @dp.message_handler(text='👥 Реферальна програма')
 async def referral_program(message: types.Message):
@@ -958,7 +922,7 @@ async def referral_program(message: types.Message):
     message_text += "💡 <b>Як це працює?</b>\n"
     message_text += "• Поділися посиланням з другом\n"
     message_text += "• Коли друг підпишеться на канал — він стане частиною нашої спільноти\n"
-    message_text += "• Разом ми робимо інтернет безпечнішим\n\n"
+    message_text += "• Завдяки тобі ми зможемо зростати та робити для тебе ще більше\n\n"
     
     if referrals:
         message_text += f"📊 <b>Статистика:</b>\n"
@@ -972,7 +936,7 @@ async def referral_program(message: types.Message):
             message_text += f"• <a href='tg://user?id={ref['user_id']}'>{ref_name}</a> - {ref['join_date'].strftime('%d.%m.%Y')}\n"
     
     keyboard = InlineKeyboardMarkup()
-    share_text = "Привіт! Приєднуйся до нашого боту! 📱 Разом ми робимо інтернет безпечнішим 🚀"
+    share_text = "Привіт! Приєднуйся до нашого боту! 📱 Завдяки тобі ми зможемо зростати та робити для тебе ще більше 🚀"
     encoded_text = urllib.parse.quote(share_text)
     share_url = f"https://t.me/share/url?url={referral_link}&text={encoded_text}"
     keyboard.add(InlineKeyboardButton("📤 Поделиться ссылкой", url=share_url))
@@ -1010,17 +974,7 @@ async def start_attack_prompt(message: Message):
     #     await message.answer("У вас закінчилися атаки на сьогодні. Спробуйте завтра або запросіть друзів для отримання додаткових атак!")
     #     return
     
-    # ВСЕГДА показываем сумму total_attacks
-    message_text = f'У вас осталось {total_attacks} атак'
-    details = []
-    details.append(f'обычные: {attacks_left}')
-    if promo_attacks > 0:
-        details.append(f'от промокодов: {promo_attacks}')
-    if referral_attacks > 0:
-        details.append(f'от рефералов: {referral_attacks}')
-    if len(details) > 1 or promo_attacks > 0 or referral_attacks > 0:
-        message_text += ' (' + ', '.join(details) + ')'
-    message_text += '\n\nНадішліть номер, зразок +380ХХХХХХХХХ'
+    message_text = '🎯 Готовий до атаки!\n\nНадішліть номер телефону у форматі +380ХХХХХХХХХ'
     
     await message.answer(message_text, parse_mode="html", reply_markup=profile_keyboard)
 
@@ -1180,7 +1134,7 @@ async def start_attack(number, chat_id):
     total_attacks = attacks_left + promo_attacks + referral_attacks
     
     inline_keyboard2 = types.InlineKeyboardMarkup()
-    code_sub = types.InlineKeyboardButton(text='Чат 💬', url='https://t.me/+tod0WSFEpEQ2ODcy')
+    code_sub = types.InlineKeyboardButton(text='Канал 💬', url='https://t.me/+tod0WSFEpEQ2ODcy')
     inline_keyboard2 = inline_keyboard2.add(code_sub)
     await bot.send_message(
         chat_id=chat_id,
@@ -1204,7 +1158,7 @@ async def handle_phone_number(message: Message):
         return  # Игнорируем сообщения из групп
     
     # Игнорируем текст кнопок
-    button_texts = ['Допомога 💻', '🎯 Залишилося атак', '👥 Реферальна програма', '📱Почати атаку']
+    button_texts = ['Допомога 💻', '👥 Реферальна програма', '📱Почати атаку']
     if message.text in button_texts:
         return
     
@@ -1272,7 +1226,7 @@ async def handle_phone_number(message: Message):
         new_total = attacks_left2 + promo_attacks2 + referral_attacks2
         cancel_keyboard = get_cancel_keyboard()
         attack_flags[chat_id] = True 
-        await message.answer(f'🇺🇦 Атака началась на номер <i>{number}</i>\nОсталось атак: {new_total}', parse_mode="html", reply_markup=get_cancel_keyboard())
+        await message.answer(f'🇺🇦 Атака началась на номер <i>{number}</i>', parse_mode="html", reply_markup=get_cancel_keyboard())
 
         asyncio.create_task(start_attack(number, chat_id))
     else:
