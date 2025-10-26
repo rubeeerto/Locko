@@ -966,8 +966,8 @@ async def referral_program(message: types.Message):
         message_text += f"├ Всего рефералов: {referral_count}\n"
         message_text += f"├ Доступно атак от рефералов: {referral_total}\n"
         if unused_referral_attacks > 0:
-            message_text += f"└ Накопленные атаки: {unused_referral_attacks}\n"
-        message_text += f"\n<b>Ваши рефералы:</b>\n"
+            message_text += f"└ Накопичено атак: {unused_referral_attacks}\n"
+        message_text += f"\n<b>Ваши реферали:</b>\n"
         for ref in referrals:
             ref_name = ref['username'] or ref['name'] or f"User{ref['user_id']}"
             message_text += f"• <a href='tg://user?id={ref['user_id']}'>{ref_name}</a> - {ref['join_date'].strftime('%d.%m.%Y')}\n"
@@ -1367,10 +1367,10 @@ async def inline_giveaway(inline_query: types.InlineQuery):
         results = [
             types.InlineQueryResultArticle(
                 id='group_only',
-                title='🚫 Только для групп',
-                description='Розыгрыш доступен только в групповых чатах',
+                title='🚫 Тільки для груп',
+                description='Розіграш доступний тільки в групових чатах',
                 input_message_content=types.InputTextMessageContent(
-                    message_text='🚫 Розыгрыш VIP-статуса доступен только в групповых чатах!'
+                    message_text='🚫 Розіграш VIP-статусу доступний лише в групових чатах!'
                 )
             )
         ]
@@ -1383,10 +1383,10 @@ async def inline_giveaway(inline_query: types.InlineQuery):
         results = [
             types.InlineQueryResultArticle(
                 id='no_access',
-                title='🚫 Нет доступа',
-                description='Только администраторы могут проводить розыгрыши',
+                title='🚫 Немає доступу',
+                description='Тільки адміністратори можуть проводити розіграші',
                 input_message_content=types.InputTextMessageContent(
-                    message_text='🚫 Только администраторы могут проводить розыгрыши!'
+                    message_text='🚫 Тільки адміністратори можуть проводити розіграші!'
                 )
             )
         ]
@@ -1395,14 +1395,14 @@ async def inline_giveaway(inline_query: types.InlineQuery):
         results = [
             types.InlineQueryResultArticle(
                 id='start_giveaway',
-                title='🎰 Розыгрыш VIP-статуса',
-                description='Определить случайного победителя из активных пользователей',
+                title='🎰 Розіграш VIP-статусу',
+                description='Визначити випадкового переможця серед активних користувачів',
                 input_message_content=types.InputTextMessageContent(
-                    message_text='🎉 <b>Розыгрыш VIP-статуса</b>\n\nГотов выбрать случайного победителя из всех активных пользователей бота!\nНажмите кнопку ниже, чтобы запустить розыгрыш 🎲',
+                    message_text='🎉 <b>Розіграш VIP-статусу</b>\n\nГотовий обрати випадкового переможця серед усіх активних користувачів бота!\nНатисніть кнопку нижче, щоб запустити розіграш 🎲',
                     parse_mode='HTML'
                 ),
                 reply_markup=types.InlineKeyboardMarkup().add(
-                    types.InlineKeyboardButton("🎰 Определить победителя", callback_data="start_giveaway")
+                    types.InlineKeyboardButton("🎰 Визначити переможця", callback_data="start_giveaway")
                 )
             )
         ]
@@ -1416,7 +1416,7 @@ async def start_giveaway(callback_query: types.CallbackQuery):
     
     # Проверяем права
     if user_id not in ADMIN:
-        await callback_query.answer("🚫 Недостаточно прав!", show_alert=True)
+        await callback_query.answer("🚫 Недостатньо прав!", show_alert=True)
         return
     
     # Получаем информацию о чате из inline_message_id или message
@@ -1563,7 +1563,7 @@ async def run_giveaway_animation(chat_id: int, message_id: int, active_users: li
             message = random.choice(search_messages)
         
         # Обновляем сообщение
-        text = f"🎉 <b>Розыгрыш VIP-статуса</b>\n\n{message}\n\n[{progress_bar}] {percentage}%\n\n👥 Участников: {len(active_users)}"
+        text = f"🎉 <b>Розіграш VIP-статусу</b>\n\n{message}\n\n[{progress_bar}] {percentage}%\n\n👥 Учасників: {len(active_users)}"
         
         try:
             await bot.edit_message_text(
@@ -1596,11 +1596,11 @@ async def run_giveaway_animation(chat_id: int, message_id: int, active_users: li
     
     # Финальное сообщение
     final_text = (
-        f"🎉 <b>Поздравляем победителя!</b>\n\n"
-        f"🏆 Победитель розыгрыша VIP-статуса:\n"
+        f"🎉 <b>Вітаємо переможця!</b>\n\n"
+        f"🏆 Переможець розіграшу VIP-статусу:\n"
         f"👤 {profile_link}\n"
         f"🆔 ID: <code>{winner_id}</code>\n\n"
-        f"🎊 Поздравляем с победой!"
+        f"🎊 Вітаємо з перемогою!"
     )
     
     try:
@@ -1647,7 +1647,7 @@ async def run_inline_giveaway_animation(inline_message_id: str, active_users: li
             message = random.choice(search_messages)
         
         # Обновляем сообщение
-        text = f"🎉 <b>Розыгрыш VIP-статуса</b>\n\n{message}\n\n[{progress_bar}] {percentage}%\n\n👥 Участников: {len(active_users)}"
+        text = f"🎉 <b>Розіграш VIP-статусу</b>\n\n{message}\n\n[{progress_bar}] {percentage}%\n\n👥 Учасників: {len(active_users)}"
         
         try:
             await bot.edit_message_text(
@@ -1676,11 +1676,11 @@ async def run_inline_giveaway_animation(inline_message_id: str, active_users: li
     
     # Финальное сообщение
     final_text = (
-        f"🎉 <b>Поздравляем победителя!</b>\n\n"
-        f"🏆 Победитель розыгрыша VIP-статуса:\n"
+        f"🎉 <b>Вітаємо переможця!</b>\n\n"
+        f"🏆 Переможець розіграшу VIP-статусу:\n"
         f"👤 {profile_link}\n"
         f"🆔 ID: <code>{winner_id}</code>\n\n"
-        f"🎊 Поздравляем с победой!"
+        f"🎊 Вітаємо з перемогою!"
     )
     
     try:
@@ -1709,7 +1709,7 @@ async def process_referral(referrer_id, user_id, username, name):
             ref_name = username or name or f"User{user_id}"
             await bot.send_message(
                 referrer_id,
-                f"🎉 По вашей реферальной ссылке присоединился новый пользователь: <a href='tg://user?id={user_id}'>{ref_name}</a>\n💥 Вы получили +2 дополнительные атаки!",
+                f"🎉 За вашою реферальною силкою приєднався новий користувач: <a href='tg://user?id={user_id}'>{ref_name}</a>\n💥 Ви отримали +2 додаткові атаки!",
                 parse_mode='HTML'
             )
         except Exception as e:
