@@ -242,7 +242,7 @@ async def add_user(user_id: int, name: str, username: str, referrer_id: int = No
                 ref_name = username or name or f"User{user_id}"
                 await bot.send_message(
                     referrer_id,
-                    f"🎉 По вашей реферальной ссылке присоединился новый пользователь: <a href='tg://user?id={user_id}'>{ref_name}</a>\n💥 Вы получили +2 дополнительные атаки!",
+                    f"🎉 За вашим реферальним посиланням приєднався новий користувач: <a href='tg://user?id={user_id}'>{ref_name}</a>\n💥 Ви отримали +2 додаткові атаки!",
                     parse_mode='HTML'
                 )
             except Exception as e:
@@ -251,7 +251,7 @@ async def add_user(user_id: int, name: str, username: str, referrer_id: int = No
         profile_link = f'<a href="tg://user?id={user_id}">{name}</a>'
         for admin_id in ADMIN:
             try:
-                await bot.send_message(admin_id, f"Новый пользователь зарегистрировался в боте:\nИмя: {profile_link}", parse_mode='HTML')
+                await bot.send_message(admin_id, f"Новий користувач зареєструвався у боті:\nІм'я: {profile_link}", parse_mode='HTML')
             except Exception as e:
                 logging.error(f"Ошибка при отправке админу {admin_id}: {e}")
 
@@ -389,31 +389,31 @@ async def process_subscription_confirmation(callback_query: types.CallbackQuery)
                             except Exception as e:
                                 logging.error(f"Ошибка при уведомлении админа {admin_id}: {e}")
                 
-                welcome_text = f"🎉 Добро пожаловать, {callback_query.from_user.first_name}!\n\n"
-                welcome_text += "Вы успешно подписались и теперь можете пользоваться ботом.\n\n"
-                welcome_text += "💰 <b>Бонус для новичков:</b>\n"
-                welcome_text += "• У вас есть 3 атаки в день\n"
-                welcome_text += "• За каждого приглашенного друга +2 дополнительных атак!\n"
-                welcome_text += "🔗 Получите свою реферальную ссылку в разделе → 'Реферальная программа'"
+                welcome_text = f"🎉 Ласкаво просимо, {callback_query.from_user.first_name}!\n\n"
+                welcome_text += "Ви успішно підписалися і тепер можете користуватися ботом.\n\n"
+                welcome_text += "💰 <b>Бонус для новачків:</b>\n"
+                welcome_text += "• У вас є 3 атаки на день\n"
+                welcome_text += "• За кожного запрошеного друга +2 додаткові атаки!\n"
+                welcome_text += "🔗 Отримайте своє реферальне посилання у розділі → 'Реферальна програма'"
                 
                 await callback_query.message.edit_text(welcome_text, parse_mode='HTML')
-                await callback_query.message.answer("Выберите действие:", reply_markup=profile_keyboard)
+                await callback_query.message.answer("Оберіть дію:", reply_markup=profile_keyboard)
             else:
-                welcome_text = f"С возвращением, {callback_query.from_user.first_name}!\n\n"
-                welcome_text += "💡 Не забывайте: за каждого друга вы получаете +1 атаку!\n"
-                welcome_text += "Проверьте свою реферальную ссылку в профиле."
+                welcome_text = f"З поверненням, {callback_query.from_user.first_name}!\n\n"
+                welcome_text += "💡 Не забувайте: за кожного друга ви отримуєте +1 атаку!\n"
+                welcome_text += "Перевірте своє реферальне посилання у профілі."
                 
                 await callback_query.message.edit_text(welcome_text, parse_mode='HTML')
-                await callback_query.message.answer("Выберите действие:", reply_markup=profile_keyboard)
+                await callback_query.message.answer("Оберіть дію:", reply_markup=profile_keyboard)
     else:
-        await callback_query.answer("Вы еще не подписались на канал!", show_alert=True)
+        await callback_query.answer("Ви ще не підписалися на канал!", show_alert=True)
 
 @dp.message_handler(commands=['admin'])
 async def admin(message: Message):
     if message.from_user.id in ADMIN:
-        await message.answer(f'{message.from_user.first_name}, выберите действие👇', reply_markup=admin_keyboard)
+        await message.answer(f'{message.from_user.first_name}, оберіть дію👇', reply_markup=admin_keyboard)
     else:
-        await message.answer('Вы не являетесь админом.')
+        await message.answer('Ви не є адміном.')
 
 # ПРОМОКОДЫ - АДМИН ПАНЕЛЬ
 
@@ -421,7 +421,7 @@ async def admin(message: Message):
 async def create_promo_start(message: Message):
     if message.from_user.id in ADMIN:
         await Dialog.create_promo_attacks.set()
-        await message.answer("Введите количество атак для промокода:")
+        await message.answer("Введіть кількість атак для промокоду:")
     else:
         await message.answer("Недостаточно прав.")
 
@@ -430,7 +430,7 @@ async def create_promo_attacks(message: Message, state: FSMContext):
     try:
         attacks = int(message.text)
         if attacks <= 0:
-            await message.answer("Количество атак должно быть больше 0. Попробуйте снова:")
+            await message.answer("Кількість атак має бути більше 0. Спробуйте ще раз:")
             return
         
         await state.update_data(attacks=attacks)
@@ -562,18 +562,18 @@ async def promo_handler(message: types.Message):
     user_id = message.from_user.id
     
     if not await user_exists(user_id):
-        await message.answer("Для использования бота необходимо нажать /start")
+        await message.answer("Для використання бота потрібно натиснути /start")
         return
     
     async with db_pool.acquire() as conn:
         result = await conn.fetchrow("SELECT block FROM users WHERE user_id = $1", user_id)
     
     if result and result['block'] == 1:
-        await message.answer("Вы заблокированы и не можете использовать бота.")
+        await message.answer("Вас заблоковано і ви не можете користуватися ботом.")
         return
 
     if not await check_subscription_status(user_id):
-        await message.answer("Вы отписались от канала. Подпишитесь, чтобы продолжить использование бота.", reply_markup=checkSubMenu)
+        await message.answer("Ви відписалися від каналу. Підпишіться, щоб продовжити використання бота.", reply_markup=checkSubMenu)
         return
     
     await Dialog.enter_promo.set()
@@ -603,7 +603,7 @@ async def process_promo(message: Message, state: FSMContext):
         ''', user_id, promo_code)
         
         if already_used:
-            await message.answer("❌ Вы уже использовали этот промокод.")
+            await message.answer("❌ Ви вже використали цей промокод.")
             await state.finish()
             return
         
@@ -843,7 +843,7 @@ async def back_to_admin_menu(message: Message):
     if message.from_user.id in ADMIN:
         await message.answer('Введите номер телефона.\nПример:\n<i>🇺🇦380xxxxxxxxx</i>', parse_mode="html", reply_markup=profile_keyboard)
     else:
-        await message.answer('Вы не являетесь админом.')
+        await message.answer('Ви не є адміном.')
 
 @dp.message_handler(text='Допомога 💻')
 @dp.throttled(anti_flood, rate=3)
@@ -855,18 +855,18 @@ async def help(message: types.Message):
     user_id = message.from_user.id
     
     if not await user_exists(user_id):
-        await message.answer("Для использования бота необходимо нажать /start")
+        await message.answer("Для використання бота потрібно натиснути /start")
         return
     
     async with db_pool.acquire() as conn:
         result = await conn.fetchrow("SELECT block FROM users WHERE user_id = $1", user_id)
     
     if result and result['block'] == 1:
-        await message.answer("Вы заблокированы и не можете использовать бота.")
+        await message.answer("Вас заблоковано і ви не можете користуватися ботом.")
         return
 
     if not await check_subscription_status(user_id):
-        await message.answer("Вы отписались от канала. Подпишитесь, чтобы продолжить использование бота.", reply_markup=checkSubMenu)
+        await message.answer("Ви відписалися від каналу. Підпишіться, щоб продовжити використання бота.", reply_markup=checkSubMenu)
         return
     
     inline_keyboard = types.InlineKeyboardMarkup()
@@ -883,18 +883,18 @@ async def check_attacks(message: types.Message):
     user_id = message.from_user.id
     
     if not await user_exists(user_id):
-        await message.answer("Для использования бота необходимо нажать /start")
+        await message.answer("Для використання бота потрібно натиснути /start")
         return
     
     async with db_pool.acquire() as conn:
         result = await conn.fetchrow("SELECT block FROM users WHERE user_id = $1", user_id)
     
     if result and result['block'] == 1:
-        await message.answer("Вы заблокированы и не можете использовать бота.")
+        await message.answer("Вас заблоковано і ви не можете користуватися ботом.")
         return
     
     if not await check_subscription_status(user_id):
-        await message.answer("Вы отписались от канала. Подпишитесь, чтобы продолжить использование бота.", reply_markup=checkSubMenu)
+        await message.answer("Ви відписалися від каналу. Підпишіться, щоб продовжити використання бота.", reply_markup=checkSubMenu)
         return
 
     can_attack, attacks_left, promo_attacks, referral_attacks = await check_attack_limits(user_id)
@@ -919,18 +919,18 @@ async def referral_program(message: types.Message):
     user_id = message.from_user.id
     
     if not await user_exists(user_id):
-        await message.answer("Для использования бота необходимо нажать /start")
+        await message.answer("Для використання бота потрібно натиснути /start")
         return
     
     async with db_pool.acquire() as conn:
         result = await conn.fetchrow("SELECT block FROM users WHERE user_id = $1", user_id)
     
     if result and result['block'] == 1:
-        await message.answer("Вы заблокированы и не можете использовать бота.")
+        await message.answer("Вас заблоковано і ви не можете користуватися ботом.")
         return
     
     if not await check_subscription_status(user_id):
-        await message.answer("Вы отписались от канала. Подпишитесь, чтобы продолжить использование бота.", reply_markup=checkSubMenu)
+        await message.answer("Ви відписалися від каналу. Підпишіться, щоб продовжити використання бота.", reply_markup=checkSubMenu)
         return
     
     async with db_pool.acquire() as conn:
@@ -988,18 +988,18 @@ async def start_attack_prompt(message: Message):
     user_id = message.from_user.id
     
     if not await user_exists(user_id):
-        await message.answer("Для использования бота необходимо нажать /start")
+        await message.answer("Для використання бота потрібно натиснути /start")
         return
     
     async with db_pool.acquire() as conn:
         result = await conn.fetchrow("SELECT block FROM users WHERE user_id = $1", user_id)
     
     if result and result['block'] == 1:
-        await message.answer("Вы заблокированы и не можете использовать бота.")
+        await message.answer("Вас заблоковано і ви не можете користуватися ботом.")
         return
     
     if not await check_subscription_status(user_id):
-        await message.answer("Вы отписались от канала. Подпишитесь, чтобы продолжить использование бота.", reply_markup=checkSubMenu)
+        await message.answer("Ви відписалися від каналу. Підпишіться, щоб продовжити використання бота.", reply_markup=checkSubMenu)
         return
     
     # Пересчитываем лимиты перед показом остатка атак
@@ -1007,7 +1007,7 @@ async def start_attack_prompt(message: Message):
     total_attacks = attacks_left + promo_attacks + referral_attacks
     
     if not can_attack:
-        await message.answer("У вас закончились атаки на сегодня. Попробуйте завтра или пригласите друзей для получения дополнительных атак!")
+        await message.answer("У вас закінчилися атаки на сьогодні. Спробуйте завтра або запросіть друзів для отримання додаткових атак!")
         return
     
     # ВСЕГДА показываем сумму total_attacks
@@ -1215,7 +1215,7 @@ async def handle_phone_number(message: Message):
     user_id = message.from_user.id
     
     if not await user_exists(user_id):
-        await message.answer("Для использования бота необходимо нажать /start")
+        await message.answer("Для використання бота потрібно натиснути /start")
         return
     
     async with db_pool.acquire() as conn:
@@ -1226,7 +1226,7 @@ async def handle_phone_number(message: Message):
         return
 
     if result['block'] == 1:
-        await message.answer("Вы заблокированы и не можете использовать бота.")
+        await message.answer("Вас заблоковано і ви не можете користуватися ботом.")
         return
 
     number = message.text.strip()
@@ -1247,7 +1247,7 @@ async def handle_phone_number(message: Message):
         total_attacks = attacks_left + promo_attacks + referral_attacks
         
         if not can_attack:
-            await message.answer(f"У вас закончились атаки на сегодня. Попробуйте завтра!")
+            await message.answer(f"У вас закінчилися атаки на сьогодні. Спробуйте завтра!")
             return
 
         # Уменьшаем количество оставшихся атак (сначала промо, потом обычные)
