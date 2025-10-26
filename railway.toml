@@ -1,0 +1,5 @@
+[build]
+nixpacks = true
+
+[start]
+cmd = "python main.py"
