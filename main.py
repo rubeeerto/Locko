@@ -310,8 +310,6 @@ async def start(message: Message):
         
         welcome_text = f"🎉 Вітаю, {message.from_user.first_name}!\n\n"
         welcome_text = 'Використовуючи бота ви автоматично погоджуєтесь з <a href="https://telegra.ph/Umovi-vikoristannya-10-26-2">умовами використання</a>\n\n'
-        await bot.send_message(chat_id=channel_id, text=welcome_text, parse_mode=types.ParseMode.HTML)
-
 
         
         await bot.send_message(user_id, welcome_text, reply_markup=profile_keyboard, parse_mode='HTML')
