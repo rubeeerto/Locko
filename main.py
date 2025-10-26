@@ -42,11 +42,11 @@ db_config = {
     'port': '5432',
 }
 
-# Используем пул соединений вместо одного соединения
+# Використовуємо пул з'єднань замість одного з'єднання
 db_pool = None
 
 attack_flags = {}
-# Флаги для розыгрышей
+# Прапорці для розіграшів
 giveaway_flags = {}
 
 storage = MemoryStorage()
@@ -57,7 +57,7 @@ async def init_db():
     global db_pool
     db_pool = await asyncpg.create_pool(**db_config, min_size=5, max_size=20)
     
-    # Получаем информацию о боте для обработки упоминаний
+    # Отримуємо інформацію про бота для обробки згадок
     try:
         bot._me = await bot.get_me()
     except Exception as e:
@@ -114,7 +114,7 @@ async def init_db():
             );
         ''')
         
-        # Добавляем новые колонки если их нет
+        # Додаємо нові колонки якщо їх немає
         try:
             await conn.execute('ALTER TABLE users ADD COLUMN IF NOT EXISTS promo_attacks INTEGER DEFAULT 0')
         except Exception as e:
@@ -175,7 +175,7 @@ async def get_csrf_token(url, headers=None):
 
 def get_cancel_keyboard():
     keyboard = InlineKeyboardMarkup(row_width=1)
-    keyboard.add(InlineKeyboardButton("🚫 Зупинити атаку", callback_data="cancel_attack"))
+    keyboard.add(InlineKeyboardButton("🛑 Зупинити атаку", callback_data="cancel_attack"))
     return keyboard
 
 async def check_subscription_status(user_id):
@@ -193,10 +193,10 @@ async def anti_flood(*args, **kwargs):
     if m.chat.type == 'private':
         await m.answer("Досить спамити!")
 
-# Обновляем клавиатуры
-profile_button = types.KeyboardButton('📱Почати атаку')
-referal_button = types.KeyboardButton('Допомога 💻')
-referral_program_button = types.KeyboardButton('👥 Реферальна програма')
+# Оновлюємо клавіатури
+profile_button = types.KeyboardButton('🎯 Почати атаку')
+referal_button = types.KeyboardButton('🆘 Допомога')
+referral_program_button = types.KeyboardButton('🎪 Запросити друга')
 # promo_button = types.KeyboardButton('Промокод 🎁')  # Прибрано
 profile_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True).add(profile_button, referal_button).add(referral_program_button)
 
@@ -241,7 +241,7 @@ async def add_user(user_id: int, name: str, username: str, referrer_id: int = No
                 ref_name = username or name or f"User{user_id}"
                 await bot.send_message(
                     referrer_id,
-                    f"🎉 За вашим реферальним посиланням приєднався новий користувач: <a href='tg://user?id={user_id}'>{ref_name}</a>\n💥 Ви отримали +2 додаткові атаки!",
+                    f"🎉 За вашим посиланням приєднався новий користувач: <a href='tg://user?id={user_id}'>{ref_name}</a>\n🚀 Ви отримали +2 додаткові атаки!",
                     parse_mode='HTML'
                 )
             except Exception as e:
@@ -263,9 +263,9 @@ async def startuser(message:types.Message):
 
 @dp.message_handler(commands=['start'])
 async def start(message: Message):
-    # Проверяем, что команда из личного чата
+    # Перевіряємо, що команда з особистого чату
     if message.chat.type != 'private':
-        return  # Игнорируем команду /start в группах
+        return  # Ігноруємо команду /start в групах
     
     user_id = message.from_user.id
     args = message.get_args()
@@ -308,11 +308,8 @@ async def start(message: Message):
             await message.answer("Вас заблоковано і ви не можете користуватися ботом.")
             return
         
-        welcome_text = f"Вітаю, {message.from_user.first_name}!\n\n"
+        welcome_text = f"🎉 Вітаю, {message.from_user.first_name}!\n\n"
         welcome_text += "🎯 Ви в головному меню.\n\n"
-        welcome_text += "💡 <b>Чи знаєте ви?</b>\n"
-        welcome_text += "За кожного запрошеного друга ви отримуєте +2 додаткові атаки!\n"
-        welcome_text += "Знайдіть своє реферальне посилання у розділі → 'Реферальна програма'"
         
         await bot.send_message(user_id, welcome_text, reply_markup=profile_keyboard, parse_mode='HTML')
 
@@ -364,7 +361,7 @@ async def process_subscription_confirmation(callback_query: types.CallbackQuery)
                         referrer_id, user_id
                     )
                     
-                    logging.info(f"Реферал засчитан: referrer_id={referrer_id}, referred_id={user_id}")
+                    logging.info(f"Друг зарахований: referrer_id={referrer_id}, referred_id={user_id}")
                     
                     referrer_data = await conn.fetchrow(
                         'SELECT referral_count, referral_notification_sent FROM users WHERE user_id = $1',
@@ -389,18 +386,13 @@ async def process_subscription_confirmation(callback_query: types.CallbackQuery)
                                 logging.error(f"Ошибка при уведомлении админа {admin_id}: {e}")
                 
                 welcome_text = f"🎉 Ласкаво просимо, {callback_query.from_user.first_name}!\n\n"
-                welcome_text += "Ви успішно підписалися і тепер можете користуватися ботом.\n\n"
-                welcome_text += "💰 <b>Бонус для новачків:</b>\n"
-                welcome_text += "• У вас є 3 атаки на день\n"
-                welcome_text += "• За кожного запрошеного друга +2 додаткові атаки!\n"
-                welcome_text += "🔗 Отримайте своє реферальне посилання у розділі → 'Реферальна програма'"
+                welcome_text += "🎯 Ви успішно підписалися і тепер можете користуватися ботом.\n\n"
                 
                 await callback_query.message.edit_text(welcome_text, parse_mode='HTML')
                 await callback_query.message.answer("Оберіть дію:", reply_markup=profile_keyboard)
             else:
-                welcome_text = f"З поверненням, {callback_query.from_user.first_name}!\n\n"
-                welcome_text += "💡 Не забувайте: за кожного друга ви отримуєте +1 атаку!\n"
-                welcome_text += "Перевірте своє реферальне посилання у профілі."
+                welcome_text = f"🎉 З поверненням, дуже на тебе чекали, {callback_query.from_user.first_name}!\n\n"
+
                 
                 await callback_query.message.edit_text(welcome_text, parse_mode='HTML')
                 await callback_query.message.answer("Оберіть дію:", reply_markup=profile_keyboard)
@@ -457,7 +449,7 @@ async def create_promo_hours(message: Message, state: FSMContext):
                 if not existing:
                     break
             
-            # Создаем промокод
+            # Створюємо промокод
             valid_until = datetime.now() + timedelta(hours=hours)
             await conn.execute(
                 'INSERT INTO promocodes (code, attacks_count, valid_until) VALUES ($1, $2, $3)',
@@ -504,7 +496,7 @@ async def delete_promo_process(message: Message, state: FSMContext):
     promo_code = message.text.strip().upper()
     
     async with db_pool.acquire() as conn:
-        # Проверяем существование промокода
+        # Перевіряємо існування промокоду
         promo = await conn.fetchrow('SELECT * FROM promocodes WHERE code = $1 AND is_active = TRUE', promo_code)
         
         if not promo:
@@ -554,7 +546,7 @@ async def list_promos(message: Message):
 
 @dp.message_handler(text='Промокод 🎁')
 async def promo_handler(message: types.Message):
-    # Проверяем, что сообщение из личного чата
+    # Перевіряємо, що повідомлення з особистого чату
     if message.chat.type != 'private':
         return
     
@@ -584,7 +576,7 @@ async def process_promo(message: Message, state: FSMContext):
     promo_code = message.text.strip().upper()
     
     async with db_pool.acquire() as conn:
-        # Проверяем существование и активность промокода
+        # Перевіряємо існування та активність промокоду
         promo = await conn.fetchrow('''
             SELECT * FROM promocodes 
             WHERE code = $1 AND is_active = TRUE AND valid_until > $2
@@ -595,7 +587,7 @@ async def process_promo(message: Message, state: FSMContext):
             await state.finish()
             return
         
-        # Проверяем, не использовал ли пользователь уже этот промокод
+        # Перевіряємо, чи не використовував користувач вже цей промокод
         already_used = await conn.fetchval('''
             SELECT 1 FROM promo_activations 
             WHERE user_id = $1 AND promo_code = $2
@@ -614,7 +606,7 @@ async def process_promo(message: Message, state: FSMContext):
             VALUES ($1, $2, $3, $4)
         ''', user_id, promo_code, expires_at, promo['attacks_count'])
         
-        # Добавляем атаки пользователю
+        # Додаємо атаки користувачу
         await conn.execute('''
             UPDATE users SET promo_attacks = promo_attacks + $1 WHERE user_id = $2
         ''', promo['attacks_count'], user_id)
@@ -635,16 +627,16 @@ async def process_promo(message: Message, state: FSMContext):
 async def bot_stats(message: Message):
     if message.from_user.id in ADMIN:
         async with db_pool.acquire() as conn:
-            # Получаем общее количество пользователей
+            # Отримуємо загальну кількість користувачів
             total_users = await conn.fetchval('SELECT COUNT(*) FROM users')
             
-            # Получаем количество активных пользователей (тех, кто не заблокировал бота)
+            # Отримуємо кількість активних користувачів (тих, хто не заблокував бота)
             active_users = 0
             users = await conn.fetch('SELECT user_id FROM users')
             
             for user in users:
                 try:
-                    # Проверяем, может ли бот отправить сообщение пользователю
+                    # Перевіряємо, чи може бот надіслати повідомлення користувачу
                     await bot.send_chat_action(user['user_id'], 'typing')
                     active_users += 1
                 except (BotBlocked, UserDeactivated, ChatNotFound):
@@ -653,16 +645,16 @@ async def bot_stats(message: Message):
                     logging.error(f"Ошибка при проверке пользователя {user['user_id']}: {e}")
                     continue
             
-            # Получаем количество заблокированных пользователей
+            # Отримуємо кількість заблокованих користувачів
             blocked_users = await conn.fetchval('SELECT COUNT(*) FROM users WHERE block = 1')
             
-            # Получаем количество пользователей с рефералами
+            # Отримуємо кількість користувачів з рефералами
             users_with_referrals = await conn.fetchval('SELECT COUNT(*) FROM users WHERE referral_count > 0')
             
-            # Получаем общее количество рефералов
+            # Отримуємо загальну кількість рефералів
             total_referrals = await conn.fetchval('SELECT COUNT(*) FROM referrals')
             
-            # Получаем количество пользователей, достигших 20 рефералов
+            # Отримуємо кількість користувачів, які досягли 20 рефералів
             vip_users = await conn.fetchval('SELECT COUNT(*) FROM users WHERE referral_count >= 20')
             
             # Статистика промокодов
@@ -748,13 +740,13 @@ async def add_to_blacklist(message: Message):
     args = message.get_args()
     
     if not args:
-        await message.answer("Пожалуйста, введите номер телефона для добавления в черный список.\nПример: /block 380XXXXXXXXX")
+        await message.answer("Будь ласка, введіть номер телефону для додавання до чорного списку.\nПриклад: /block 380XXXXXXXXX")
         return
     
     phone = args.strip()
     
     if not re.match(r"^\d{12}$", phone):
-        await message.answer("Номер должен быть формата: 380ХХХХХХХХХ. Пожалуйста, введите номер повторно.")
+        await message.answer("Номер повинен бути формату: 380ХХХХХХХХХ. Будь ласка, введіть номер повторно.")
         return
 
     try:
@@ -762,7 +754,7 @@ async def add_to_blacklist(message: Message):
             await conn.execute("INSERT INTO blacklist (phone_number) VALUES ($1) ON CONFLICT DO NOTHING", phone)
         await message.answer(f"Номер {phone} добавлен в черный список.")
     except Exception as e:
-        await message.answer("Произошла ошибка при добавлении номера в черный список.")
+        await message.answer("Сталася помилка при додаванні номера до чорного списку.")
         print(f"Ошибка: {e}")
 
 @dp.message_handler(commands=['nonstart'])
@@ -786,7 +778,7 @@ async def process_block(message: Message, state: FSMContext):
             await conn.execute("UPDATE users SET block = $1 WHERE user_id = $2", 1, user_id)
         await message.answer(f"Пользователь с ID {user_id} заблокирован.")
     else:
-        await message.answer("Некорректный ID пользователя. Пожалуйста, введите числовой ID.")
+        await message.answer("Некоректний ID користувача. Будь ласка, введіть числовий ID.")
     await state.finish()
 
 @dp.message_handler(text="Разблокировать пользователя")
@@ -804,7 +796,7 @@ async def process_unblock(message: Message, state: FSMContext):
             await conn.execute("UPDATE users SET block = $1 WHERE user_id = $2", 0, user_id)
         await message.answer(f"Пользователь с ID {user_id} разблокирован.")
     else:
-        await message.answer("Некорректный ID пользователя. Пожалуйста, введите числовой ID.")
+        await message.answer("Некоректний ID користувача. Будь ласка, введіть числовий ID.")
     await state.finish()
 
 @dp.message_handler(text="Рефералы")
@@ -844,10 +836,10 @@ async def back_to_admin_menu(message: Message):
     else:
         await message.answer('Ви не є адміном.')
 
-@dp.message_handler(text='Допомога 💻')
+@dp.message_handler(text='🆘 Допомога')
 @dp.throttled(anti_flood, rate=3)
 async def help(message: types.Message):
-    # Проверяем, что сообщение из личного чата
+    # Перевіряємо, що повідомлення з особистого чату
     if message.chat.type != 'private':
         return
     
@@ -869,14 +861,14 @@ async def help(message: types.Message):
         return
     
     inline_keyboard = types.InlineKeyboardMarkup()
-    code_sub = types.InlineKeyboardButton(text='Канал 💬', url='https://t.me/+tod0WSFEpEQ2ODcy')
+    code_sub = types.InlineKeyboardButton(text='🎪 Канал', url='https://t.me/+tod0WSFEpEQ2ODcy')
     inline_keyboard = inline_keyboard.add(code_sub)
     await bot.send_message(message.chat.id, "Виникли питання? Звертайся до @ABOBA", disable_web_page_preview=True, parse_mode="HTML", reply_markup=inline_keyboard)
 
 
-@dp.message_handler(text='👥 Реферальна програма')
+@dp.message_handler(text='🎪 Запросити друга')
 async def referral_program(message: types.Message):
-    # Проверяем, что сообщение из личного чата
+    # Перевіряємо, що повідомлення з особистого чату
     if message.chat.type != 'private':
         return
     
@@ -917,12 +909,12 @@ async def referral_program(message: types.Message):
             user_id
         )
     
-    message_text = f"👥 <b>Реферальна програма</b>\n\n"
-    message_text += f"🔗 Ваше реферальне посилання:\n<code>{referral_link}</code>\n\n"
+    message_text = f"🎪 <b>Запросити друга</b>\n\n"
+    message_text += f"🔗 Ваше посилання для друга:\n<code>{referral_link}</code>\n\n"
     message_text += "💡 <b>Як це працює?</b>\n"
-    message_text += "• Поділися посиланням з другом\n"
-    message_text += "• Коли друг підпишеться на канал — він стане частиною нашої спільноти\n"
-    message_text += "• Завдяки тобі ми зможемо зростати та робити для тебе ще більше\n\n"
+    message_text += "• 🎯 Поділися посиланням з другом\n"
+    message_text += "• 🎉 Коли друг підпишеться на канал — він стане частиною нашої спільноти\n"
+    message_text += "• 🚀 Завдяки тобі ми зможемо зростати та робити для тебе ще більше\n\n"
     
     if referrals:
         message_text += f"📊 <b>Статистика:</b>\n"
@@ -930,7 +922,7 @@ async def referral_program(message: types.Message):
         message_text += f"├ Доступно атак от рефералов: {referral_total}\n"
         if unused_referral_attacks > 0:
             message_text += f"└ Накопичено атак: {unused_referral_attacks}\n"
-        message_text += f"\n<b>Ваши реферали:</b>\n"
+        message_text += f"\n<b>Ваші реферали:</b>\n"
         for ref in referrals:
             ref_name = ref['username'] or ref['name'] or f"User{ref['user_id']}"
             message_text += f"• <a href='tg://user?id={ref['user_id']}'>{ref_name}</a> - {ref['join_date'].strftime('%d.%m.%Y')}\n"
@@ -939,15 +931,15 @@ async def referral_program(message: types.Message):
     share_text = "Привіт! Приєднуйся до нашого боту! 📱 Завдяки тобі ми зможемо зростати та робити для тебе ще більше 🚀"
     encoded_text = urllib.parse.quote(share_text)
     share_url = f"https://t.me/share/url?url={referral_link}&text={encoded_text}"
-    keyboard.add(InlineKeyboardButton("📤 Поделиться ссылкой", url=share_url))
+    keyboard.add(InlineKeyboardButton("🎯 Поділитися посиланням", url=share_url))
     
     await message.answer(message_text, parse_mode='HTML', reply_markup=keyboard)
 
-@dp.message_handler(text='📱Почати атаку')
+@dp.message_handler(text='🎯 Почати атаку')
 async def start_attack_prompt(message: Message):
-    # Проверяем, что сообщение из личного чата
+    # Перевіряємо, що повідомлення з особистого чату
     if message.chat.type != 'private':
-        return  # Игнорируем сообщения из групп
+        return  # Ігноруємо повідомлення з груп
     
     user_id = message.from_user.id
     
@@ -974,7 +966,7 @@ async def start_attack_prompt(message: Message):
     #     await message.answer("У вас закінчилися атаки на сьогодні. Спробуйте завтра або запросіть друзів для отримання додаткових атак!")
     #     return
     
-    message_text = '🎯 Готовий до атаки!\n\nНадішліть номер телефону у форматі +380ХХХХХХХХХ'
+    message_text = '🎯 Готовий до атаки!\n\n💥 Надішліть номер телефону у форматі +380ХХХХХХХХХ'
     
     await message.answer(message_text, parse_mode="html", reply_markup=profile_keyboard)
 
@@ -1117,7 +1109,7 @@ async def start_attack(number, chat_id):
         await bot.send_message(chat_id, "🛑 Атака остановлена.")
     except Exception as e:
         logging.error(f"Ошибка при выполнении атаки: {e}")
-        await bot.send_message(chat_id, "❌ Произошла ошибка при выполнении атаки.")
+        await bot.send_message(chat_id, "❌ Сталася помилка при виконанні атаки.")
     finally:
         attack_flags[chat_id] = False
 
@@ -1134,13 +1126,13 @@ async def start_attack(number, chat_id):
     total_attacks = attacks_left + promo_attacks + referral_attacks
     
     inline_keyboard2 = types.InlineKeyboardMarkup()
-    code_sub = types.InlineKeyboardButton(text='Канал 💬', url='https://t.me/+tod0WSFEpEQ2ODcy')
+    code_sub = types.InlineKeyboardButton(text='🎪 Канал', url='https://t.me/+tod0WSFEpEQ2ODcy')
     inline_keyboard2 = inline_keyboard2.add(code_sub)
     await bot.send_message(
         chat_id=chat_id,
-        text=f"""✅ Атака на номер <i>{number}</i> завершена!
+        text=f"""🎉 Атака на номер <i>{number}</i> завершена!
 
-🎉 Сподобалась робота бота? 
+🔥 Сподобалась робота бота? 
 Допоможи нам зростати — запроси друга у наш бот!
 
 💬 Якщо є питання або пропозиції, звертайся до @ABOBA 
@@ -1153,12 +1145,12 @@ async def start_attack(number, chat_id):
 @dp.message_handler(lambda message: message.text and not message.text.startswith('/start'), content_types=['text'])
 @dp.throttled(anti_flood, rate=3)
 async def handle_phone_number(message: Message):
-    # Проверяем, что сообщение из личного чата
+    # Перевіряємо, що повідомлення з особистого чату
     if message.chat.type != 'private':
-        return  # Игнорируем сообщения из групп
+        return  # Ігноруємо повідомлення з груп
     
-    # Игнорируем текст кнопок
-    button_texts = ['Допомога 💻', '👥 Реферальна програма', '📱Почати атаку']
+    # Ігноруємо текст кнопок
+    button_texts = ['🆘 Допомога', '🎪 Запросити друга', '🎯 Почати атаку']
     if message.text in button_texts:
         return
     
@@ -1172,7 +1164,7 @@ async def handle_phone_number(message: Message):
         result = await conn.fetchrow("SELECT block FROM users WHERE user_id = $1", user_id)
     
     if not result:
-        await message.answer("Ошибка: Не удалось найти пользователя.")
+        await message.answer("Помилка: Не вдалося знайти користувача.")
         return
 
     if result['block'] == 1:
@@ -1226,7 +1218,7 @@ async def handle_phone_number(message: Message):
         new_total = attacks_left2 + promo_attacks2 + referral_attacks2
         cancel_keyboard = get_cancel_keyboard()
         attack_flags[chat_id] = True 
-        await message.answer(f'🇺🇦 Атака началась на номер <i>{number}</i>', parse_mode="html", reply_markup=get_cancel_keyboard())
+        await message.answer(f'🇺🇦 Атака началась на номер <i>{number}</i> 💥', parse_mode="html", reply_markup=get_cancel_keyboard())
 
         asyncio.create_task(start_attack(number, chat_id))
     else:
@@ -1262,12 +1254,12 @@ async def check_attack_limits(user_id: int):
         else:
             last_attack_date_only = today
         
-        # Проверяем, нужно ли сбросить атаки на новый день
+        # Перевіряємо, чи потрібно скинути атаки на новий день
         if last_attack_date_only != today:
-            # Сохраняем неиспользованные реферальные атаки
+            # Зберігаємо невикористані реферальні атаки
             if referral_attacks > 0:
                 unused_referral_attacks += referral_attacks
-            # Сбрасываем обычные атаки на 3, добавляем накопленные реферальные
+            # Скидаємо звичайні атаки на 3, додаємо накопичені реферальні
             new_attacks = 3 + unused_referral_attacks
             await conn.execute(
                 "UPDATE users SET attacks_left = $1, referral_attacks = 0, unused_referral_attacks = 0, last_attack_date = $2 WHERE user_id = $3",
@@ -1302,32 +1294,32 @@ async def inline_giveaway(inline_query: types.InlineQuery):
     """Обработчик inline-запросов для розыгрыша"""
     user_id = inline_query.from_user.id
     
-    # Проверяем, что inline-запрос идет из группового чата
-    # Если inline используется в личке - не показываем розыгрыш
+    # Перевіряємо, що inline-запит йде з групового чату
+    # Якщо inline використовується в особистому чаті - не показуємо розіграш
     if inline_query.chat_type not in ['group', 'supergroup']:
         results = [
             types.InlineQueryResultArticle(
                 id='group_only',
-                title='🚫 Тільки для груп',
+                title='🎪 Тільки для груп',
                 description='Розіграш доступний тільки в групових чатах',
                 input_message_content=types.InputTextMessageContent(
-                    message_text='🚫 Розіграш VIP-статусу доступний лише в групових чатах!'
+                    message_text='🎪 Розіграш VIP-статусу доступний лише в групових чатах!'
                 )
             )
         ]
         await bot.answer_inline_query(inline_query.id, results, cache_time=1)
         return
     
-    # Проверяем права пользователя
+    # Перевіряємо права користувача
     if user_id not in ADMIN:
         # Для обычных пользователей показываем "отказ"
         results = [
             types.InlineQueryResultArticle(
                 id='no_access',
-                title='🚫 Немає доступу',
+                title='🎪 Немає доступу',
                 description='Тільки адміністратори можуть проводити розіграші',
                 input_message_content=types.InputTextMessageContent(
-                    message_text='🚫 Тільки адміністратори можуть проводити розіграші!'
+                    message_text='🎪 Тільки адміністратори можуть проводити розіграші!'
                 )
             )
         ]
@@ -1336,14 +1328,14 @@ async def inline_giveaway(inline_query: types.InlineQuery):
         results = [
             types.InlineQueryResultArticle(
                 id='start_giveaway',
-                title='🎰 Розіграш VIP-статусу',
+                title='🎪 Розіграш VIP-статусу',
                 description='Визначити випадкового переможця серед активних користувачів',
                 input_message_content=types.InputTextMessageContent(
                     message_text='🎉 <b>Розіграш VIP-статусу</b>\n\nГотовий обрати випадкового переможця серед усіх активних користувачів бота!\nНатисніть кнопку нижче, щоб запустити розіграш 🎲',
                     parse_mode='HTML'
                 ),
                 reply_markup=types.InlineKeyboardMarkup().add(
-                    types.InlineKeyboardButton("🎰 Визначити переможця", callback_data="start_giveaway")
+                    types.InlineKeyboardButton("🎪 Визначити переможця", callback_data="start_giveaway")
                 )
             )
         ]
@@ -1355,12 +1347,12 @@ async def start_giveaway(callback_query: types.CallbackQuery):
     """Запуск розыгрыша VIP-статуса"""
     user_id = callback_query.from_user.id
     
-    # Проверяем права
+    # Перевіряємо права
     if user_id not in ADMIN:
         await callback_query.answer("🚫 Недостатньо прав!", show_alert=True)
         return
     
-    # Получаем информацию о чате из inline_message_id или message
+    # Отримуємо інформацію про чат з inline_message_id або message
     chat_id = None
     message_id = None
     
@@ -1369,10 +1361,10 @@ async def start_giveaway(callback_query: types.CallbackQuery):
         message_id = callback_query.message.message_id
         chat_type = callback_query.message.chat.type
     elif callback_query.inline_message_id:
-        # Для inline-сообщений запускаем полную анимацию
+        # Для inline-повідомлень запускаємо повну анімацію
         await callback_query.answer("🎰 Запускаю розыгрыш...")
         
-        # Получаем список активных пользователей
+        # Отримуємо список активних користувачів
         async with db_pool.acquire() as conn:
             users = await conn.fetch('SELECT user_id, name, username FROM users WHERE block = 0')
         
@@ -1383,7 +1375,7 @@ async def start_giveaway(callback_query: types.CallbackQuery):
             )
             return
         
-        # Фильтруем активных пользователей
+        # Фільтруємо активних користувачів
         active_users = []
         for user in users:
             try:
@@ -1401,19 +1393,19 @@ async def start_giveaway(callback_query: types.CallbackQuery):
             )
             return
         
-        # Запускаем анимацию для inline-сообщения
+        # Запускаємо анімацію для inline-повідомлення
         await run_inline_giveaway_animation(callback_query.inline_message_id, active_users)
         return
     else:
-        await callback_query.answer("❌ Ошибка: не удалось определить чат!", show_alert=True)
+        await callback_query.answer("❌ Помилка: не вдалося визначити чат!", show_alert=True)
         return
     
-    # Проверяем, что это групповой чат
+    # Перевіряємо, що це груповий чат
     if chat_type not in ['group', 'supergroup']:
         await callback_query.answer("🚫 Розыгрыш доступен только в групповых чатах!", show_alert=True)
         return
     
-    # Проверяем, не идет ли уже розыгрыш
+    # Перевіряємо, чи не йде вже розіграш
     if giveaway_flags.get(chat_id):
         await callback_query.answer("⏳ Розыгрыш уже идет!", show_alert=True)
         return
@@ -1422,7 +1414,7 @@ async def start_giveaway(callback_query: types.CallbackQuery):
     giveaway_flags[chat_id] = True
     
     try:
-        # Получаем список активных пользователей
+        # Отримуємо список активних користувачів
         async with db_pool.acquire() as conn:
             users = await conn.fetch('SELECT user_id, name, username FROM users WHERE block = 0')
         
@@ -1434,7 +1426,7 @@ async def start_giveaway(callback_query: types.CallbackQuery):
             )
             return
         
-        # Фильтруем активных пользователей (тех, кто не заблокировал бота)
+        # Фільтруємо активних користувачів (тех, кто не заблокировал бота)
         active_users = []
         for user in users:
             try:
@@ -1460,14 +1452,14 @@ async def start_giveaway(callback_query: types.CallbackQuery):
         logging.error(f"Ошибка в розыгрыше: {e}")
         try:
             await bot.edit_message_text(
-                "❌ Произошла ошибка при проведении розыгрыша!",
+                "❌ Сталася помилка при проведенні розіграшу!",
                 chat_id=chat_id,
                 message_id=message_id
             )
         except Exception as edit_error:
             logging.error(f"Ошибка при редактировании сообщения: {edit_error}")
             try:
-                await bot.send_message(chat_id, "❌ Произошла ошибка при проведении розыгрыша!")
+                await bot.send_message(chat_id, "❌ Сталася помилка при проведенні розіграшу!")
             except Exception as send_error:
                 logging.error(f"Ошибка при отправке сообщения: {send_error}")
     finally:
@@ -1477,11 +1469,11 @@ async def run_giveaway_animation(chat_id: int, message_id: int, active_users: li
     """Анимация розыгрыша с прогресс-баром"""
     import random
     
-    # Сообщения для анимации
+    # Повідомлення для анімації
     search_messages = [
-        "🎲 Перемешиваю участников...",
+        "🎪 Перемешиваю участников...",
         "⚡ Запускаю генератор случайных чисел...",
-        "🎰 Крутится колесо фортуны...",
+        "🎲 Крутится колесо фортуны...",
         "🎯 Почти готово...",
     ]
     
@@ -1492,18 +1484,18 @@ async def run_giveaway_animation(chat_id: int, message_id: int, active_users: li
         if not giveaway_flags.get(chat_id):
             return
         
-        # Создаем прогресс-бар
+        # Створюємо прогрес-бар
         filled = (step + 1) * 2
         empty = 8 - filled
         progress_bar = "▓" * filled + "░" * empty
         percentage = (step + 1) * 25     
-        # Выбираем сообщение
+        # Вибираємо повідомлення
         if step < len(search_messages):
             message = search_messages[step]
         else:
             message = random.choice(search_messages)
         
-        # Обновляем сообщение
+        # Оновлюємо повідомлення
         text = f"🎉 <b>Розіграш VIP-статусу</b>\n\n{message}\n\n[{progress_bar}] {percentage}%\n\n👥 Учасників: {len(active_users)}"
         
         try:
@@ -1515,19 +1507,19 @@ async def run_giveaway_animation(chat_id: int, message_id: int, active_users: li
             )
         except Exception as e:
             logging.error(f"Ошибка обновления сообщения на шаге {step}: {e}")
-            # Если не можем редактировать, пропускаем этот шаг
+            # Якщо не можемо редагувати, пропускаємо цей крок
             pass
         
         if step < total_steps:
             await asyncio.sleep(step_duration)
     
-    # Выбираем победителя
+    # Вибираємо переможця
     winner = random.choice(active_users)
     winner_name = winner['name'] or "Без имени"
     winner_username = winner['username']
     winner_id = winner['user_id']
     
-    # Формируем ссылку на профиль
+    # Формуємо посилання на профіль
     if winner_username:
         profile_link = f"<a href='https://t.me/{winner_username}'>@{winner_username}</a>"
         display_name = f"{winner_name} (@{winner_username})"
@@ -1535,7 +1527,7 @@ async def run_giveaway_animation(chat_id: int, message_id: int, active_users: li
         profile_link = f"<a href='tg://user?id={winner_id}'>{winner_name}</a>"
         display_name = winner_name
     
-    # Финальное сообщение
+    # Фінальне повідомлення
     final_text = (
         f"🎉 <b>Вітаємо переможця!</b>\n\n"
         f"🏆 Переможець розіграшу VIP-статусу:\n"
@@ -1553,7 +1545,7 @@ async def run_giveaway_animation(chat_id: int, message_id: int, active_users: li
         )
     except Exception as e:
         logging.error(f"Ошибка финального сообщения: {e}")
-        # Если не можем отредактировать, отправляем новое сообщение
+        # Якщо не можемо відредагувати, надсилаємо нове повідомлення
         try:
             await bot.send_message(chat_id, final_text, parse_mode='HTML')
         except Exception as send_error:
@@ -1563,9 +1555,9 @@ async def run_inline_giveaway_animation(inline_message_id: str, active_users: li
     """Анимация розыгрыша для inline-сообщений"""
     import random
     
-    # Сообщения для анимации
+    # Повідомлення для анімації
     search_messages = [
-        "🎲 Перемешиваю участников...",
+        "🎪 Перемешиваю участников...",
         "⚡ Запускаю генератор случайных чисел...",
         "✨ Определяю победителя...",
         "🎯 Почти готово...",
@@ -1575,19 +1567,19 @@ async def run_inline_giveaway_animation(inline_message_id: str, active_users: li
     step_duration = 3.0  # секунда на шаг
     
     for step in range(total_steps):
-        # Создаем прогресс-бар
+        # Створюємо прогрес-бар
         filled = (step + 1) * 2
         empty = 8 - filled
         progress_bar = "▓" * filled + "░" * empty
         percentage = (step + 1) * 25
         
-        # Выбираем сообщение
+        # Вибираємо повідомлення
         if step < len(search_messages):
             message = search_messages[step]
         else:
             message = random.choice(search_messages)
         
-        # Обновляем сообщение
+        # Оновлюємо повідомлення
         text = f"🎉 <b>Розіграш VIP-статусу</b>\n\n{message}\n\n[{progress_bar}] {percentage}%\n\n👥 Учасників: {len(active_users)}"
         
         try:
@@ -1603,19 +1595,19 @@ async def run_inline_giveaway_animation(inline_message_id: str, active_users: li
         if step < total_steps:
             await asyncio.sleep(step_duration)
     
-    # Выбираем победителя
+    # Вибираємо переможця
     winner = random.choice(active_users)
     winner_name = winner['name'] or "Без имени"
     winner_username = winner['username']
     winner_id = winner['user_id']
     
-    # Формируем ссылку на профиль
+    # Формуємо посилання на профіль
     if winner_username:
         profile_link = f"<a href='https://t.me/{winner_username}'>@{winner_username}</a>"
     else:
         profile_link = f"<a href='tg://user?id={winner_id}'>{winner_name}</a>"
     
-    # Финальное сообщение
+    # Фінальне повідомлення
     final_text = (
         f"🎉 <b>Вітаємо переможця!</b>\n\n"
         f"🏆 Переможець розіграшу VIP-статусу:\n"
@@ -1633,7 +1625,7 @@ async def run_inline_giveaway_animation(inline_message_id: str, active_users: li
     except Exception as e:
         logging.error(f"Ошибка финального inline-сообщения: {e}")
 
-# Добавляю функцию для начисления реферальных атак
+# Додаю функцію для нарахування реферальних атак
 async def process_referral(referrer_id, user_id, username, name):
     if not referrer_id:
         return
@@ -1650,7 +1642,7 @@ async def process_referral(referrer_id, user_id, username, name):
             ref_name = username or name or f"User{user_id}"
             await bot.send_message(
                 referrer_id,
-                f"🎉 За вашою реферальною силкою приєднався новий користувач: <a href='tg://user?id={user_id}'>{ref_name}</a>\n💥 Ви отримали +2 додаткові атаки!",
+                f"🎉 За вашою реферальною силкою приєднався новий користувач: <a href='tg://user?id={user_id}'>{ref_name}</a>\n🚀 Ви отримали +2 додаткові атаки!",
                 parse_mode='HTML'
             )
         except Exception as e:
