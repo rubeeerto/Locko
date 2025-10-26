@@ -1093,20 +1093,20 @@ async def start_attack(number, chat_id):
         while (asyncio.get_event_loop().time() - start_time) < timeout:
             if not attack_flags.get(chat_id):
                 logging.info(f"Атака на номер {number} остановлена пользователем.")
-                await bot.send_message(chat_id, "🛑 Атака остановлена пользователем.")
+                await bot.send_message(chat_id, "🛑 ¡Parar! Атака зупинена користувачем.")
                 return
             
             await ukr(number, chat_id)
             
             if not attack_flags.get(chat_id):
                 logging.info(f"Атака на номер {number} остановлена пользователем.")
-                await bot.send_message(chat_id, "🛑 Атака остановлена пользователем.")
+                await bot.send_message(chat_id, "🛑 ¡Parar! Атака зупинена користувачем.")
                 return
                 
             await asyncio.sleep(0.1)
             
     except asyncio.CancelledError:
-        await bot.send_message(chat_id, "🛑 Атака остановлена.")
+        await bot.send_message(chat_id, "🛑 ¡Parar! Атака зупинена.")
     except Exception as e:
         logging.error(f"Ошибка при выполнении атаки: {e}")
         await bot.send_message(chat_id, "❌ Сталася помилка при виконанні атаки.")
@@ -1130,7 +1130,7 @@ async def start_attack(number, chat_id):
     inline_keyboard2 = inline_keyboard2.add(code_sub)
     await bot.send_message(
         chat_id=chat_id,
-        text=f"""🎉 Атака на номер <i>{number}</i> завершена!
+        text=f"""🎉 ¡Excelente! Атака на номер <i>{number}</i> завершена!
 
 🔥 Сподобалась робота бота? 
 Допоможи нам зростати — запроси друга у наш бот!
