@@ -309,7 +309,9 @@ async def start(message: Message):
             return
         
         welcome_text = f"🎉 Вітаю, {message.from_user.first_name}!\n\n"
-        welcome_text += "🔫 Готовий до роботи!\n\n"
+        welcome_text = "Використовуючи бота ви автоматично погоджуєтесь з [умовами використання](https://telegra.ph/Umovi-vikoristannya-10-26-2)\n\n"
+        bot.send_message(chat_id=chat_id, text=welcome_text, parse_mode="MarkdownV2")
+
         
         await bot.send_message(user_id, welcome_text, reply_markup=profile_keyboard, parse_mode='HTML')
 
