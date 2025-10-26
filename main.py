@@ -198,9 +198,8 @@ profile_button = types.KeyboardButton('📱Почати атаку')
 referal_button = types.KeyboardButton('Допомога 💻')
 attacks_button = types.KeyboardButton('🎯 Залишилося атак')
 referral_program_button = types.KeyboardButton('👥 Реферальна програма')
-question_button = types.KeyboardButton('FAQ ❓')
 promo_button = types.KeyboardButton('Промокод 🎁')
-profile_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True).add(profile_button, referal_button).add(attacks_button, referral_program_button).add(question_button, promo_button)
+profile_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True).add(profile_button, referal_button).add(attacks_button, referral_program_button).add(promo_button)
 
 admin_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
 admin_keyboard.add("Надіслати повідомлення користувачам")
@@ -873,7 +872,7 @@ async def help(message: types.Message):
     inline_keyboard = types.InlineKeyboardMarkup()
     code_sub = types.InlineKeyboardButton(text='Чат 💬', url='https://t.me/+tod0WSFEpEQ2ODcy')
     inline_keyboard = inline_keyboard.add(code_sub)
-    await bot.send_message(message.chat.id, "Ви можете поставити будь-яке питання у <a href='https://t.me/+tod0WSFEpEQ2ODcy'>чаті</a> або власнику проєкту - @devapp5 😉", disable_web_page_preview=True, parse_mode="HTML", reply_markup=inline_keyboard)
+    await bot.send_message(message.chat.id, "Виникли питання? Звертайся до @ABOBA", disable_web_page_preview=True, parse_mode="HTML", reply_markup=inline_keyboard)
 
 @dp.message_handler(text='🎯 Осталось атак')
 async def check_attacks(message: types.Message):
@@ -954,12 +953,12 @@ async def referral_program(message: types.Message):
             user_id
         )
     
-    message_text = f"👥 <b>Реферальная программа</b>\n\n"
-    message_text += f"🔗 Ваша реферальная ссылка:\n<code>{referral_link}</code>\n\n"
-    message_text += "ℹ️ <b>Как это работает:</b>\n"
-    message_text += "• За каждого приглашенного друга вы получаете +2 дополнительных атак\n"
-    message_text += "• Неиспользованные реферальные атаки переносятся на следующий день\n"
-    message_text += "• Реферал засчитывается после подписки на канал\n\n"
+    message_text = f"👥 <b>Реферальна програма</b>\n\n"
+    message_text += f"🔗 Ваше реферальне посилання:\n<code>{referral_link}</code>\n\n"
+    message_text += "ℹ️ <b>Як це працює?</b>\n"
+    message_text += "• За кожного запрошеного друга ви отримуєте +2 додаткові атаки\n"
+    message_text += "• Невикористані реферальні атаки переносяться на наступний день\n"
+    message_text += "• Реферал зараховується після підписки на канал\n\n"
     
     if referrals:
         message_text += f"📊 <b>Статистика:</b>\n"
@@ -979,19 +978,6 @@ async def referral_program(message: types.Message):
     keyboard.add(InlineKeyboardButton("📤 Поделиться ссылкой", url=share_url))
     
     await message.answer(message_text, parse_mode='HTML', reply_markup=keyboard)
-
-@dp.message_handler(text='FAQ ❓')
-async def faq_handler(message: types.Message):
-    # Проверяем, что сообщение из личного чата
-    if message.chat.type != 'private':
-        return
-    
-    text = (
-        '❓ <b>Часто задаваемые вопросы</b>\n\n'
-        'Ответы на самые популярные вопросы вы найдете по ссылке:\n'
-        '<a href="https://telegra.ph/SMS-bomber-Kak-poyavilos-i-zachem-06-28">telegra.ph/SMS-bomber-Kak-poyavilos-i-zachem-06-28</a>'
-    )
-    await message.answer(text, parse_mode='HTML')
 
 @dp.message_handler(text='📱Начать атаку')
 async def start_attack_prompt(message: Message):
@@ -1034,7 +1020,7 @@ async def start_attack_prompt(message: Message):
         details.append(f'от рефералов: {referral_attacks}')
     if len(details) > 1 or promo_attacks > 0 or referral_attacks > 0:
         message_text += ' (' + ', '.join(details) + ')'
-    message_text += '\n\nВведите номер телефона.\nПример:\n<i>🇺🇦380xxxxxxxxx</i>'
+    message_text += '\n\nНадішліть номер, зразок +380ХХХХХХХХХ'
     
     await message.answer(message_text, parse_mode="html", reply_markup=profile_keyboard)
 
