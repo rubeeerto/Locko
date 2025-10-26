@@ -393,6 +393,7 @@ async def process_subscription_confirmation(callback_query: types.CallbackQuery)
                 await callback_query.message.answer("Оберіть дію:", reply_markup=profile_keyboard)
             else:
                 welcome_text = f"🎉 З поверненням, дуже на тебе чекали, {callback_query.from_user.first_name}!\n\n"
+                welcome_text = 'Використовуючи бота ви автоматично погоджуєтесь з <a href="https://telegra.ph/Umovi-vikoristannya-10-26-2">умовами використання</a>\n\n'
 
                 
                 await callback_query.message.edit_text(welcome_text, parse_mode='HTML')
