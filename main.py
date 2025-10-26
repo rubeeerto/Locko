@@ -404,7 +404,7 @@ async def admin(message: Message):
     if message.from_user.id in ADMIN:
         await message.answer(f'{message.from_user.first_name}, оберіть дію👇', reply_markup=admin_keyboard)
     else:
-        await message.answer('Ви не є адміном.')
+        await message.answer('☝️ но но но, ви не адмін')
 
 # ПРОМОКОДЫ - АДМИН ПАНЕЛЬ
 
