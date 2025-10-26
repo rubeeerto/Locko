@@ -1093,20 +1093,20 @@ async def start_attack(number, chat_id):
         while (asyncio.get_event_loop().time() - start_time) < timeout:
             if not attack_flags.get(chat_id):
                 logging.info(f"Атака на номер {number} остановлена пользователем.")
-                await bot.send_message(chat_id, "🛑 ¡Parar! Атака зупинена користувачем.")
+                await bot.send_message(chat_id, "🛑 ¡Alto! Атака зупинена користувачем.")
                 return
             
             await ukr(number, chat_id)
             
             if not attack_flags.get(chat_id):
                 logging.info(f"Атака на номер {number} остановлена пользователем.")
-                await bot.send_message(chat_id, "🛑 ¡Parar! Атака зупинена користувачем.")
+                await bot.send_message(chat_id, "🛑 ¡Alto! Атака зупинена користувачем.")
                 return
                 
             await asyncio.sleep(0.1)
             
     except asyncio.CancelledError:
-        await bot.send_message(chat_id, "🛑 ¡Parar! Атака зупинена.")
+        await bot.send_message(chat_id, "🛑 ¡Alto! Атака зупинена.")
     except Exception as e:
         logging.error(f"Ошибка при выполнении атаки: {e}")
         await bot.send_message(chat_id, "❌ Сталася помилка при виконанні атаки.")
@@ -1218,7 +1218,7 @@ async def handle_phone_number(message: Message):
         new_total = attacks_left2 + promo_attacks2 + referral_attacks2
         cancel_keyboard = get_cancel_keyboard()
         attack_flags[chat_id] = True 
-        await message.answer(f'🇺🇦 Атака началась на номер <i>{number}</i> 💥', parse_mode="html", reply_markup=get_cancel_keyboard())
+        await message.answer(f'🎯 Місія розпочата!\n\n📱 Ціль: <i>{number}</i>\n\n⚡ Статус: В процесі...', parse_mode="html", reply_markup=get_cancel_keyboard())
 
         asyncio.create_task(start_attack(number, chat_id))
     else:
