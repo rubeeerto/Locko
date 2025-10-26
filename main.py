@@ -871,7 +871,7 @@ async def help(message: types.Message):
         return
     
     inline_keyboard = types.InlineKeyboardMarkup()
-    code_sub = types.InlineKeyboardButton(text='Чат 💬', url='https://t.me/+FX2zP8FZ8gxiMDEy')
+    code_sub = types.InlineKeyboardButton(text='Чат 💬', url='https://t.me/+tod0WSFEpEQ2ODcy')
     inline_keyboard = inline_keyboard.add(code_sub)
     await bot.send_message(message.chat.id, "Ви можете поставити будь-яке питання у <a href='https://t.me/+FX2zP8FZ8gxiMDEy'>чаті</a> або власнику проєкту - @devapp5 😉", disable_web_page_preview=True, parse_mode="HTML", reply_markup=inline_keyboard)
 
