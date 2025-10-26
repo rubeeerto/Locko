@@ -32,7 +32,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 ADMIN = [810944378]
 channel_id = "-1003203193556"
-message = ("Приветствую.\nВыберите действие в меню ниже 👇")
+message = ("Сап.\nВыберите действие в меню ниже 👇")
 
 db_config = {
     'user': 'postgres',
