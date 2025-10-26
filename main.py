@@ -198,8 +198,8 @@ profile_button = types.KeyboardButton('📱Почати атаку')
 referal_button = types.KeyboardButton('Допомога 💻')
 attacks_button = types.KeyboardButton('🎯 Залишилося атак')
 referral_program_button = types.KeyboardButton('👥 Реферальна програма')
-promo_button = types.KeyboardButton('Промокод 🎁')
-profile_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True).add(profile_button, referal_button).add(attacks_button, referral_program_button).add(promo_button)
+# promo_button = types.KeyboardButton('Промокод 🎁')  # Прибрано
+profile_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True).add(profile_button, referal_button).add(attacks_button, referral_program_button)
 
 admin_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
 admin_keyboard.add("Надіслати повідомлення користувачам")
@@ -955,10 +955,10 @@ async def referral_program(message: types.Message):
     
     message_text = f"👥 <b>Реферальна програма</b>\n\n"
     message_text += f"🔗 Ваше реферальне посилання:\n<code>{referral_link}</code>\n\n"
-    message_text += "ℹ️ <b>Як це працює?</b>\n"
-    message_text += "• За кожного запрошеного друга ви отримуєте +2 додаткові атаки\n"
-    message_text += "• Невикористані реферальні атаки переносяться на наступний день\n"
-    message_text += "• Реферал зараховується після підписки на канал\n\n"
+    message_text += "💡 <b>Як це працює?</b>\n"
+    message_text += "• Поділися посиланням з другом\n"
+    message_text += "• Коли друг підпишеться на канал — він стане частиною нашої спільноти\n"
+    message_text += "• Разом ми робимо інтернет безпечнішим\n\n"
     
     if referrals:
         message_text += f"📊 <b>Статистика:</b>\n"
@@ -972,7 +972,7 @@ async def referral_program(message: types.Message):
             message_text += f"• <a href='tg://user?id={ref['user_id']}'>{ref_name}</a> - {ref['join_date'].strftime('%d.%m.%Y')}\n"
     
     keyboard = InlineKeyboardMarkup()
-    share_text = "Привет! Присоединяйся к нашему боту для атак на номера! За каждого друга ты получишь дополнительную атаку! 🚀"
+    share_text = "Привіт! Приєднуйся до нашого боту! 📱 Разом ми робимо інтернет безпечнішим 🚀"
     encoded_text = urllib.parse.quote(share_text)
     share_url = f"https://t.me/share/url?url={referral_link}&text={encoded_text}"
     keyboard.add(InlineKeyboardButton("📤 Поделиться ссылкой", url=share_url))
@@ -1006,9 +1006,9 @@ async def start_attack_prompt(message: Message):
     can_attack, attacks_left, promo_attacks, referral_attacks = await check_attack_limits(user_id)
     total_attacks = attacks_left + promo_attacks + referral_attacks
     
-    if not can_attack:
-        await message.answer("У вас закінчилися атаки на сьогодні. Спробуйте завтра або запросіть друзів для отримання додаткових атак!")
-        return
+    # if not can_attack:
+    #     await message.answer("У вас закінчилися атаки на сьогодні. Спробуйте завтра або запросіть друзів для отримання додаткових атак!")
+    #     return
     
     # ВСЕГДА показываем сумму total_attacks
     message_text = f'У вас осталось {total_attacks} атак'
@@ -1185,17 +1185,13 @@ async def start_attack(number, chat_id):
     await bot.send_message(
         chat_id=chat_id,
         text=f"""✅ Атака на номер <i>{number}</i> завершена!
-Осталось атак: {total_attacks}
 
-🔥 Хочешь больше возможностей? Попробуй наш VIP-бот!
-• В несколько раз мощнее
-• Белимитные атаки
-• Больше по времени
+🎉 Сподобалась робота бота? 
+Допоможи нам зростати — запроси друга у наш бот!
 
-Стоимость — всего 100 грн!
-Пиши <b>+</b> в личку владельцу @devapp5
+💬 Якщо є питання або пропозиції, звертайся до @ABOBA 
 
-У нас также есть чатик 👇""",
+Приєднуйся до нашого ком'юніті 👇""",
         parse_mode="html",
         reply_markup=inline_keyboard2
     )
@@ -1208,7 +1204,7 @@ async def handle_phone_number(message: Message):
         return  # Игнорируем сообщения из групп
     
     # Игнорируем текст кнопок
-    button_texts = ['Допомога 💻', '🎯 Залишилося атак', '👥 Реферальна програма', '📱Почати атаку', 'Промокод 🎁']
+    button_texts = ['Допомога 💻', '🎯 Залишилося атак', '👥 Реферальна програма', '📱Почати атаку']
     if message.text in button_texts:
         return
     
@@ -1246,9 +1242,9 @@ async def handle_phone_number(message: Message):
         can_attack, attacks_left, promo_attacks, referral_attacks = await check_attack_limits(user_id)
         total_attacks = attacks_left + promo_attacks + referral_attacks
         
-        if not can_attack:
-            await message.answer(f"У вас закінчилися атаки на сьогодні. Спробуйте завтра!")
-            return
+        # if not can_attack:
+        #     await message.answer(f"У вас закінчилися атаки на сьогодні. Спробуйте завтра!")
+        #     return
 
         # Уменьшаем количество оставшихся атак (сначала промо, потом обычные)
         async with db_pool.acquire() as conn:
