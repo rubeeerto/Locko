@@ -32,7 +32,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 ADMIN = [810944378]
 channel_id = "-1003203193556"
-message = ("Сап.\nВаш вибір: 👇")
+message = ("Привіт.\nВаш вибір: 👇")
 
 db_config = {
     'user': 'postgres',
@@ -175,7 +175,7 @@ async def get_csrf_token(url, headers=None):
 
 def get_cancel_keyboard():
     keyboard = InlineKeyboardMarkup(row_width=1)
-    keyboard.add(InlineKeyboardButton("🚫 Остановить атаку", callback_data="cancel_attack"))
+    keyboard.add(InlineKeyboardButton("🚫 Зупинити атаку", callback_data="cancel_attack"))
     return keyboard
 
 async def check_subscription_status(user_id):
@@ -189,29 +189,29 @@ async def check_subscription_status(user_id):
 
 async def anti_flood(*args, **kwargs):
     m = args[0]
-    # Проверяем, что сообщение из личного чата
+    # Перевіряємо, що повідомлення з особистого чату
     if m.chat.type == 'private':
-        await m.answer("Хватит спамить!")
+        await m.answer("Досить спамити!")
 
 # Обновляем клавиатуры
-profile_button = types.KeyboardButton('📱Начать атаку')
-referal_button = types.KeyboardButton('Помощь 💻')
-attacks_button = types.KeyboardButton('🎯 Осталось атак')
-referral_program_button = types.KeyboardButton('👥 Реферальная программа')
+profile_button = types.KeyboardButton('📱Почати атаку')
+referal_button = types.KeyboardButton('Допомога 💻')
+attacks_button = types.KeyboardButton('🎯 Залишилося атак')
+referral_program_button = types.KeyboardButton('👥 Реферальна програма')
 question_button = types.KeyboardButton('FAQ ❓')
 promo_button = types.KeyboardButton('Промокод 🎁')
 profile_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True).add(profile_button, referal_button).add(attacks_button, referral_program_button).add(question_button, promo_button)
 
 admin_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
-admin_keyboard.add("Отправить сообщение пользователям")
-admin_keyboard.add("Добавить номер в черный список")
+admin_keyboard.add("Надіслати повідомлення користувачам")
+admin_keyboard.add("Додати номер до чорного списку")
 admin_keyboard.add("Статистика бота")
-admin_keyboard.add("Заблокировать пользователя")
-admin_keyboard.add("Разблокировать пользователя")
-admin_keyboard.add("Рефералы")
-admin_keyboard.add("Создать промокод")
-admin_keyboard.add("Удалить промокод")
-admin_keyboard.add("Список промокодов")
+admin_keyboard.add("Заблокувати користувача")
+admin_keyboard.add("Розблокувати користувача")
+admin_keyboard.add("Реферали")
+admin_keyboard.add("Створити промокод")
+admin_keyboard.add("Видалити промокод")
+admin_keyboard.add("Список промокодів")
 admin_keyboard.add("Назад")
 
 def generate_promo_code():
@@ -261,7 +261,7 @@ async def startuser(message:types.Message):
     if await check_subscription_status(user_id):
         await message.answer(message, reply_markup=profile_keyboard)
     else:
-        await message.answer("Вы не подписаны", reply_markup=checkSubMenu)
+        await message.answer("Ви не підписані", reply_markup=checkSubMenu)
 
 @dp.message_handler(commands=['start'])
 async def start(message: Message):
@@ -283,38 +283,38 @@ async def start(message: Message):
                     referrer_id = None
     
     if not await check_subscription_status(user_id):
-        # Сохраняем сообщение /start с аргументом для последующей обработки после подписки
+        # Зберігаємо повідомлення /start з аргументом для подальшої обробки після підписки
         async with db_pool.acquire() as conn:
             await conn.execute(
                 'INSERT INTO user_messages (user_id, message_text) VALUES ($1, $2)',
                 user_id, message.text
             )
-        logging.info(f"Сохранена информация о реферальной ссылке: user_id={user_id}, referrer_id={referrer_id}")
-        await message.answer("Для использования бота необходимо подписаться на наш канал!", reply_markup=checkSubMenu)
+        logging.info(f"Збережена інформація про реферальне посилання: user_id={user_id}, referrer_id={referrer_id}")
+        await message.answer("Для використання бота потрібно підписатися на наш канал!", reply_markup=checkSubMenu)
         return
     
     async with db_pool.acquire() as conn:
         result = await conn.fetchrow('SELECT block FROM users WHERE user_id = $1', user_id)
     
     if message.from_user.id in ADMIN:
-        await message.answer('Введите команду /admin', reply_markup=profile_keyboard)
+        await message.answer('Введіть команду /admin', reply_markup=profile_keyboard)
     else:
         if result is None:
-            # Новый пользователь — добавляем с реферальным id, если есть
+            # Новий користувач — додаємо з реферальним id, якщо є
             await add_user(message.from_user.id, message.from_user.full_name, message.from_user.username, None)
-            # После добавления пользователя начисляем реферальные атаки, если есть реферер
+            # Після додавання користувача нараховуємо реферальні атаки, якщо є реферер
             if referrer_id:
                 await process_referral(referrer_id, message.from_user.id, message.from_user.username, message.from_user.full_name)
         
         if result and result['block'] == 1:
-            await message.answer("Вы заблокированы и не можете использовать бота.")
+            await message.answer("Вас заблоковано і ви не можете користуватися ботом.")
             return
         
-        welcome_text = f"Приветствую, {message.from_user.first_name}!\n\n"
-        welcome_text += "🎯 Вы в главном меню.\n\n"
-        welcome_text += "💡 <b>Знаете ли вы?</b>\n"
-        welcome_text += "За каждого приглашенного друга вы получаете +2 дополнительных атаки!\n"
-        welcome_text += "Найдите свою реферальную ссылку в разделе → 'Реферальная программа'"
+        welcome_text = f"Вітаю, {message.from_user.first_name}!\n\n"
+        welcome_text += "🎯 Ви в головному меню.\n\n"
+        welcome_text += "💡 <b>Чи знаєте ви?</b>\n"
+        welcome_text += "За кожного запрошеного друга ви отримуєте +2 додаткові атаки!\n"
+        welcome_text += "Знайдіть своє реферальне посилання у розділі → 'Реферальна програма'"
         
         await bot.send_message(user_id, welcome_text, reply_markup=profile_keyboard, parse_mode='HTML')
 
@@ -871,9 +871,9 @@ async def help(message: types.Message):
         return
     
     inline_keyboard = types.InlineKeyboardMarkup()
-    code_sub = types.InlineKeyboardButton(text='Чатик 💬', url='https://t.me/+FX2zP8FZ8gxiMDEy')
+    code_sub = types.InlineKeyboardButton(text='Чат 💬', url='https://t.me/+FX2zP8FZ8gxiMDEy')
     inline_keyboard = inline_keyboard.add(code_sub)
-    await bot.send_message(message.chat.id, "Вы можете задать любой интересующий вопрос в <a href='https://t.me/+FX2zP8FZ8gxiMDEy'>чате</a> или у владельца проекта - @devapp5 😉", disable_web_page_preview=True, parse_mode="HTML", reply_markup=inline_keyboard)
+    await bot.send_message(message.chat.id, "Ви можете поставити будь-яке питання у <a href='https://t.me/+FX2zP8FZ8gxiMDEy'>чаті</a> або власнику проєкту - @devapp5 😉", disable_web_page_preview=True, parse_mode="HTML", reply_markup=inline_keyboard)
 
 @dp.message_handler(text='🎯 Осталось атак')
 async def check_attacks(message: types.Message):
@@ -1194,7 +1194,7 @@ async def start_attack(number, chat_id):
     total_attacks = attacks_left + promo_attacks + referral_attacks
     
     inline_keyboard2 = types.InlineKeyboardMarkup()
-    code_sub = types.InlineKeyboardButton(text='Чатик 💬', url='https://t.me/+FX2zP8FZ8gxiMDEy')
+    code_sub = types.InlineKeyboardButton(text='Чат 💬', url='https://t.me/+FX2zP8FZ8gxiMDEy')
     inline_keyboard2 = inline_keyboard2.add(code_sub)
     await bot.send_message(
         chat_id=chat_id,
