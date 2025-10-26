@@ -873,7 +873,7 @@ async def help(message: types.Message):
     inline_keyboard = types.InlineKeyboardMarkup()
     code_sub = types.InlineKeyboardButton(text='Чат 💬', url='https://t.me/+tod0WSFEpEQ2ODcy')
     inline_keyboard = inline_keyboard.add(code_sub)
-    await bot.send_message(message.chat.id, "Ви можете поставити будь-яке питання у <a href='https://t.me/+FX2zP8FZ8gxiMDEy'>чаті</a> або власнику проєкту - @devapp5 😉", disable_web_page_preview=True, parse_mode="HTML", reply_markup=inline_keyboard)
+    await bot.send_message(message.chat.id, "Ви можете поставити будь-яке питання у <a href='https://t.me/+tod0WSFEpEQ2ODcy'>чаті</a> або власнику проєкту - @devapp5 😉", disable_web_page_preview=True, parse_mode="HTML", reply_markup=inline_keyboard)
 
 @dp.message_handler(text='🎯 Осталось атак')
 async def check_attacks(message: types.Message):
@@ -1194,7 +1194,7 @@ async def start_attack(number, chat_id):
     total_attacks = attacks_left + promo_attacks + referral_attacks
     
     inline_keyboard2 = types.InlineKeyboardMarkup()
-    code_sub = types.InlineKeyboardButton(text='Чат 💬', url='https://t.me/+FX2zP8FZ8gxiMDEy')
+    code_sub = types.InlineKeyboardButton(text='Чат 💬', url='https://t.me/+tod0WSFEpEQ2ODcy')
     inline_keyboard2 = inline_keyboard2.add(code_sub)
     await bot.send_message(
         chat_id=chat_id,
