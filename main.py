@@ -149,6 +149,7 @@ class Dialog(StatesGroup):
     create_promo_hours = State()
     delete_promo = State()
     enter_promo = State()
+    add_to_blacklist = State()
 
 async def email():
     name_length = random.randint(6, 12)
@@ -191,7 +192,7 @@ async def anti_flood(*args, **kwargs):
     m = args[0]
     # Перевіряємо, що повідомлення з особистого чату
     if m.chat.type == 'private':
-        await m.answer("Досить спамити!")
+        await m.answer("Спокійно, не поспішай! 🐢")
 
 # Оновлюємо клавіатури
 profile_button = types.KeyboardButton('🎯 Почати атаку')
@@ -411,7 +412,7 @@ async def admin(message: Message):
 
 # ПРОМОКОДЫ - АДМИН ПАНЕЛЬ
 
-@dp.message_handler(text="Создать промокод")
+@dp.message_handler(text="Створити промокод")
 async def create_promo_start(message: Message):
     if message.from_user.id in ADMIN:
         await Dialog.create_promo_attacks.set()
@@ -473,7 +474,7 @@ async def create_promo_hours(message: Message, state: FSMContext):
     except ValueError:
         await message.answer("Введіть коректне число. Спробуйте ще раз:")
 
-@dp.message_handler(text="Удалить промокод")
+@dp.message_handler(text="Видалити промокод")
 async def delete_promo_start(message: Message):
     if message.from_user.id in ADMIN:
         async with db_pool.acquire() as conn:
@@ -512,7 +513,7 @@ async def delete_promo_process(message: Message, state: FSMContext):
     await message.answer(f"✅ Промокод <code>{promo_code}</code> успішно видалено!", parse_mode='HTML')
     await state.finish()
 
-@dp.message_handler(text="Список промокодов")
+@dp.message_handler(text="Список промокодів")
 async def list_promos(message: Message):
     if message.from_user.id in ADMIN:
         async with db_pool.acquire() as conn:
@@ -683,11 +684,13 @@ async def bot_stats(message: Message):
     else:
         await message.answer("Недостатньо прав.")
 
-@dp.message_handler(text='Отправить сообщение пользователям')
+@dp.message_handler(text='Надіслати повідомлення користувачам')
 async def broadcast_prompt(message: Message):
     if message.from_user.id in ADMIN:
         await Dialog.spam.set()
         await message.answer('Введіть повідомлення для користувачів:')
+    else:
+        await message.answer("Недостатньо прав.")
 
 @dp.message_handler(state=Dialog.spam, content_types=[types.ContentType.TEXT, types.ContentType.PHOTO, types.ContentType.VIDEO, types.ContentType.DOCUMENT])
 async def broadcast_message(message: Message, state: FSMContext):
@@ -738,6 +741,37 @@ async def broadcast_message(message: Message, state: FSMContext):
     await message.answer(f'Повідомлення відправлено!\nУспішно: {success_count}\nПомилок: {error_count}')
     await state.finish()
 
+@dp.message_handler(text="Додати номер до чорного списку")
+async def add_to_blacklist_start(message: Message):
+    if message.from_user.id in ADMIN:
+        await message.answer("Введіть номер телефону для додавання до чорного списку:\nПриклад: <i>🇺🇦380xxxxxxxxx</i>", parse_mode="html")
+        await Dialog.add_to_blacklist.set()
+    else:
+        await message.answer("Недостатньо прав.")
+
+@dp.message_handler(state=Dialog.add_to_blacklist)
+async def add_to_blacklist_process(message: Message, state: FSMContext):
+    phone = message.text.strip()
+    
+    # Видаляємо всі символи окрім цифр
+    phone = re.sub(r'\D', '', phone)
+    if phone.startswith('0'):
+        phone = '380' + phone[1:]
+
+    if not re.match(r"^\d{12}$", phone):
+        await message.answer("Невірний формат номера.\nВведіть номер повторно.\nПриклад: <i>🇺🇦380XXXXXXXXX</i>", parse_mode="html")
+        return
+
+    try:
+        async with db_pool.acquire() as conn:
+            await conn.execute("INSERT INTO blacklist (phone_number) VALUES ($1) ON CONFLICT DO NOTHING", phone)
+        await message.answer(f"✅ Номер {phone} додано до чорного списку.", parse_mode="html")
+    except Exception as e:
+        await message.answer("❌ Сталася помилка при додаванні номера до чорного списку.")
+        logging.error(f"Помилка при додаванні в чорний список: {e}")
+    
+    await state.finish()
+
 @dp.message_handler(commands=['block'])
 async def add_to_blacklist(message: Message):
     args = message.get_args()
@@ -766,11 +800,13 @@ async def nonstart(message: Message):
     await message.answer("Я ж сказав не натискати...", reply_markup=empty_keyboard)
 
 
-@dp.message_handler(text="Заблокировать пользователя")
+@dp.message_handler(text="Заблокувати користувача")
 async def block_user(message: Message):
     if message.from_user.id in ADMIN:
         await message.answer("Введіть ID користувача для блокування:")
         await Dialog.block_user.set()
+    else:
+        await message.answer("Недостатньо прав.")
 
 @dp.message_handler(state=Dialog.block_user)
 async def process_block(message: Message, state: FSMContext):
@@ -784,11 +820,13 @@ async def process_block(message: Message, state: FSMContext):
         await message.answer("Некоректний ID користувача. Будь ласка, введіть числовий ID.")
     await state.finish()
 
-@dp.message_handler(text="Разблокировать пользователя")
+@dp.message_handler(text="Розблокувати користувача")
 async def unblock_user(message: Message):
     if message.from_user.id in ADMIN:
         await message.answer("Введіть ID користувача для розблокування:")
         await Dialog.unblock_user.set()
+    else:
+        await message.answer("Недостатньо прав.")
 
 @dp.message_handler(state=Dialog.unblock_user)
 async def process_unblock(message: Message, state: FSMContext):
@@ -802,7 +840,7 @@ async def process_unblock(message: Message, state: FSMContext):
         await message.answer("Некоректний ID користувача. Будь ласка, введіть числовий ID.")
     await state.finish()
 
-@dp.message_handler(text="Рефералы")
+@dp.message_handler(text="Реферали")
 async def show_referrals(message: Message):
     if message.from_user.id in ADMIN:
         async with db_pool.acquire() as conn:
@@ -835,7 +873,7 @@ async def show_referrals(message: Message):
 @dp.message_handler(text="Назад")
 async def back_to_admin_menu(message: Message):
     if message.from_user.id in ADMIN:
-        await message.answer('Введіть номер телефону.\nПриклад:\n<i>🇺🇦380xxxxxxxxx</i>', parse_mode="html", reply_markup=profile_keyboard)
+        await message.answer('Ви повернулись до головного меню.', reply_markup=profile_keyboard)
     else:
         await message.answer('Ви не є адміном.')
 
