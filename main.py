@@ -196,10 +196,10 @@ async def anti_flood(*args, **kwargs):
 # Оновлюємо клавіатури
 profile_button = types.KeyboardButton('🎯 Почати атаку')
 referal_button = types.KeyboardButton('🆘 Допомога')
-referral_program_button = types.KeyboardButton('🎪 Отримати більше атак')
-check_attacks_button = types.KeyboardButton('❓ Перевірити атаки')
+referral_program_button = types.KeyboardButton('🎪 Запросити друга')
+# check_attacks_button = types.KeyboardButton('❓ Перевірити атаки')  # Прибрано
 # promo_button = types.KeyboardButton('Промокод 🎁')  # Прибрано
-profile_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True).add(profile_button, referal_button).add(referral_program_button).add(check_attacks_button)
+profile_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True).add(profile_button, referal_button).add(referral_program_button)
 
 admin_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
 admin_keyboard.add("Надіслати повідомлення користувачам")
@@ -869,44 +869,8 @@ async def help(message: types.Message):
     await bot.send_message(message.chat.id, "Виникли питання? Звертайся до @ABOBA", disable_web_page_preview=True, parse_mode="HTML", reply_markup=inline_keyboard)
 
 
-@dp.message_handler(text='❓ Перевірити атаки')
-async def check_attacks(message: types.Message):
-    # Перевіряємо, що повідомлення з особистого чату
-    if message.chat.type != 'private':
-        return
-    
-    user_id = message.from_user.id
-    
-    if not await user_exists(user_id):
-        await message.answer("Для використання бота потрібно натиснути /start")
-        return
-    
-    async with db_pool.acquire() as conn:
-        result = await conn.fetchrow("SELECT block FROM users WHERE user_id = $1", user_id)
-    
-    if result and result['block'] == 1:
-        await message.answer("Вас заблоковано і ви не можете користуватися ботом.")
-        return
-    
-    if not await check_subscription_status(user_id):
-        await message.answer("Ви відписалися від каналу. Підпишіться, щоб продовжити використання бота.", reply_markup=checkSubMenu)
-        return
-    
-    can_attack, attacks_left, promo_attacks, referral_attacks = await check_attack_limits(user_id)
-    total_attacks = attacks_left + promo_attacks + referral_attacks
-    
-    message_text = f"📊 <b>Ваші атаки:</b>\n\n"
-    message_text += f"⚔️ Атаки: {attacks_left}\n"
-    if promo_attacks > 0:
-        message_text += f"🎁 Промокодні атаки: {promo_attacks}\n"
-    if referral_attacks > 0:
-        message_text += f"🎪 Реферальні атаки: {referral_attacks}\n"
-    message_text += f"\n💥 Всього доступно: {total_attacks}\n\n"
-    message_text += f"💎 Хочеш більше? Купуй VIP у @ABOBA або запрошуй друзів!"
-    
-    await message.answer(message_text, parse_mode='HTML')
 
-@dp.message_handler(text='🎪 Отримати більше атак')
+@dp.message_handler(text='🎪 Запросити друга')
 async def referral_program(message: types.Message):
     # Перевіряємо, що повідомлення з особистого чату
     if message.chat.type != 'private':
@@ -949,12 +913,12 @@ async def referral_program(message: types.Message):
             user_id
         )
     
-    message_text = f"🎪 <b>Отримати більше атак</b>\n\n"
+    message_text = f"🎪 <b>Запросити друга</b>\n\n"
     message_text += f"🔗 Ваше посилання для друга:\n<code>{referral_link}</code>\n\n"
     message_text += "💡 <b>Як це працює?</b>\n"
     message_text += "• 🎯 Поділися посиланням з другом\n"
     message_text += "• 🎉 Коли друг підпишеться на канал — він стане частиною нашої спільноти\n"
-    message_text += "• 💎 За одного друга ти отримаєш +6 атак на один день!\n\n"
+    message_text += "• 🚀 Завдяки тобі ми зможемо зростати та робити для тебе ще більше\n\n"
     
     if referrals:
         message_text += f"📊 <b>Статистика:</b>\n"
@@ -998,13 +962,7 @@ async def start_attack_prompt(message: Message):
         await message.answer("Ви відписалися від каналу. Підпишіться, щоб продовжити використання бота.", reply_markup=checkSubMenu)
         return
     
-    # Пересчитываем лимиты перед показом остатка атак
-    can_attack, attacks_left, promo_attacks, referral_attacks = await check_attack_limits(user_id)
-    total_attacks = attacks_left + promo_attacks + referral_attacks
-    
-    # if not can_attack:
-    #     await message.answer("У вас закінчилися атаки на сьогодні. Спробуйте завтра або запросіть друзів для отримання додаткових атак!")
-    #     return
+    # Бот безлімітний - перевірка лімітів вимкнена
     
     message_text = '🎯 Готовий до атаки!\n\n💥 Очікую на номер телефону..'
     
@@ -1190,7 +1148,7 @@ async def handle_phone_number(message: Message):
         return  # Ігноруємо повідомлення з груп
     
     # Ігноруємо текст кнопок
-    button_texts = ['🆘 Допомога', '🎪 Отримати більше атак', '🎯 Почати атаку', '❓ Перевірити атаки']
+    button_texts = ['🆘 Допомога', '🎪 Запросити друга', '🎯 Почати атаку']
     if message.text in button_texts:
         return
     
@@ -1225,37 +1183,12 @@ async def handle_phone_number(message: Message):
             await message.answer(f"Номер <i>{number}</i> захищений від атаки.", parse_mode="html")
             return
 
-        can_attack, attacks_left, promo_attacks, referral_attacks = await check_attack_limits(user_id)
-        total_attacks = attacks_left + promo_attacks + referral_attacks
-        
-        # if not can_attack:
-        #     await message.answer(f"У вас закінчилися атаки на сьогодні. Спробуйте завтра!")
-        #     return
-
-        # Уменьшаем количество оставшихся атак (сначала промо, потом обычные)
+        # Бот безлімітний - оновлюємо тільки дату останньої атаки
         async with db_pool.acquire() as conn:
-            if promo_attacks > 0:
-                new_promo_attacks = promo_attacks - 1
-                await conn.execute(
-                    'UPDATE users SET promo_attacks = $1, last_attack_date = $2 WHERE user_id = $3',
-                    new_promo_attacks, datetime.now(), user_id
-                )
-            elif referral_attacks > 0:
-                new_referral_attacks = referral_attacks - 1
-                await conn.execute(
-                    'UPDATE users SET referral_attacks = $1, last_attack_date = $2 WHERE user_id = $3',
-                    new_referral_attacks, datetime.now(), user_id
-                )
-            else:
-                new_attacks_left = attacks_left - 1
-                await conn.execute(
-                    'UPDATE users SET attacks_left = $1, last_attack_date = $2 WHERE user_id = $3',
-                    new_attacks_left, datetime.now(), user_id
-                )
-
-        # Пересчитываем лимиты после списания
-        can_attack2, attacks_left2, promo_attacks2, referral_attacks2 = await check_attack_limits(user_id)
-        new_total = attacks_left2 + promo_attacks2 + referral_attacks2
+            await conn.execute(
+                'UPDATE users SET last_attack_date = $1 WHERE user_id = $2',
+                datetime.now(), user_id
+            )
         cancel_keyboard = get_cancel_keyboard()
         attack_flags[chat_id] = True 
         await message.answer(f'🎯 Місія розпочата!\n\n📱 Ціль: <i>{number}</i>\n\n⚡ Статус: В процесі...', parse_mode="html", reply_markup=get_cancel_keyboard())
