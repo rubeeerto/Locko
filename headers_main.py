@@ -1,5 +1,29 @@
 import fake_useragent
 
+
+headers_avrora = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Encoding": "gzip, deflate, br, zstd",
+    "Accept-Language": "ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3",
+    "Connection": "keep-alive",
+    "Content-Type": "application/json;charset=utf-8",
+    "Origin": "https://avrora.ua",
+    "Referer": "https://avrora.ua/",
+    "X-Requested-With": "XMLHttpRequest"
+}
+
+cookies_avrora = {
+    "__cf_bm": "YcN2H9IlFmuB3dsUizvaElg8j2KJ.GA9nm7QByiLSb0-1761594933.8772013-1.0.1.1-FWhoFhci5qVc4g71swIIp.ZwrJ8ihA0vxKc9vSVFx3GNjWsq4I3pYwhwXmvNxxarzWJxCo_o9qKQe.WNXYwEOVhPA_L.0Eur2iDaOEqHPQ480YOjP8ulWO46QgQzSlNn",
+    "_fbp": "fb.1.1761594924643.737657207106845558",
+    "_ga": "GA1.2.1829016148.1761594923",
+    "_gid": "GA1.2.360889588.1761594924",
+    "avpp": "app3|aP/OK|aP/OK",
+    "sid_customer_s_9e09f": "80999cef775c30707dfd02936326a172-C",
+    "cf_clearance": "BpgC4rxfsP.hL0MvZ4qJcRj.Og3BXPyhXgWepE_p7B4-1761594924-1.2.1.1-9Q4MxA2dGimyPX.qgeC4GrlhvbLFMd_mPD2XuqrSFccdBlTtxARLeiNJZ_5XJQ1uROWO20Whwq8eFafiMBEZaLzaSJtBGKdJp2QQDi7qy1d8kocuN8LRnTTN3LPwr7SCYl6CjKnFMmCP6tu7UJ6zyKJ4ro5OXqwxR.pDAX65qWO8rP9ou3FWrnDltQVFQ_8_bHK6Jh7bcY.q801usBFRJCTwJqT5483hgT_Nf8khsBo"
+}
+
+
 headers_dnipro = {
         "User-Agent": fake_useragent.UserAgent().random,
         "Accept": "application/json, text/plain, */*",
