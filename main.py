@@ -869,7 +869,7 @@ async def help(message: types.Message):
     await bot.send_message(message.chat.id, "Виникли питання? Звертайся до @ABOBA", disable_web_page_preview=True, parse_mode="HTML", reply_markup=inline_keyboard)
 
 
-@dp.message_handler(text='📊 Перевірити атаки')
+@dp.message_handler(text='❓ Перевірити атаки')
 async def check_attacks(message: types.Message):
     # Перевіряємо, що повідомлення з особистого чату
     if message.chat.type != 'private':
