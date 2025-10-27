@@ -416,30 +416,46 @@ async def admin(message: Message):
 async def create_promo_start(message: Message):
     if message.from_user.id in ADMIN:
         await Dialog.create_promo_attacks.set()
-        await message.answer("Введіть кількість атак для промокоду:")
+        await message.answer("🎁 <b>Створення промокоду</b>\n\nВведіть кількість атак для промокоду:\n\n💡 Ви можете написати <b>Скасувати</b> для відміни.", parse_mode="html")
     else:
         await message.answer("Недостатньо прав.")
 
 @dp.message_handler(state=Dialog.create_promo_attacks)
 async def create_promo_attacks(message: Message, state: FSMContext):
+    text = message.text.strip()
+    
+    # Перевіряємо на скасування
+    if text.lower() in ['скасувати', 'отмена', 'отмінити', 'cancel']:
+        await state.finish()
+        await message.answer("❌ Операцію скасовано.", reply_markup=profile_keyboard)
+        return
+    
     try:
-        attacks = int(message.text)
+        attacks = int(text)
         if attacks <= 0:
-            await message.answer("Кількість атак має бути більше 0. Спробуйте ще раз:")
+            await message.answer("❌ Кількість атак має бути більше 0.\n\nВведіть число або напишіть <b>Скасувати</b> для відміни.", parse_mode="html")
             return
         
         await state.update_data(attacks=attacks)
         await Dialog.create_promo_hours.set()
-        await message.answer("Введіть строк дії промокоду в годинах (час, протягом якого користувачі зможуть ввести промокод):")
+        await message.answer("⏰ Введіть строк дії промокоду в годинах (час, протягом якого користувачі зможуть ввести промокод):\n\n💡 Напишіть <b>Скасувати</b> для відміни.", parse_mode="html")
     except ValueError:
-        await message.answer("Введіть коректне число. Спробуйте ще раз:")
+        await message.answer("❌ Введіть коректне число.\n\nСпробуйте ще раз або напишіть <b>Скасувати</b> для відміни.", parse_mode="html")
 
 @dp.message_handler(state=Dialog.create_promo_hours)
 async def create_promo_hours(message: Message, state: FSMContext):
+    text = message.text.strip()
+    
+    # Перевіряємо на скасування
+    if text.lower() in ['скасувати', 'отмена', 'отмінити', 'cancel']:
+        await state.finish()
+        await message.answer("❌ Операцію скасовано.", reply_markup=profile_keyboard)
+        return
+    
     try:
-        hours = int(message.text)
+        hours = int(text)
         if hours <= 0:
-            await message.answer("Кількість годин має бути більше 0. Спробуйте ще раз:")
+            await message.answer("❌ Кількість годин має бути більше 0.\n\nВведіть число або напишіть <b>Скасувати</b> для відміни.", parse_mode="html")
             return
         
         data = await state.get_data()
@@ -467,12 +483,13 @@ async def create_promo_hours(message: Message, state: FSMContext):
             f"⏰ Діє до: {valid_until.strftime('%d.%m.%Y %H:%M')}\n"
             f"📝 Промокод можна ввести протягом {hours} годин\n"
             f"🕐 Після активації діє 24 години",
-            parse_mode='HTML'
+            parse_mode='HTML',
+            reply_markup=profile_keyboard
         )
         
         await state.finish()
     except ValueError:
-        await message.answer("Введіть коректне число. Спробуйте ще раз:")
+        await message.answer("❌ Введіть коректне число.\n\nСпробуйте ще раз або напишіть <b>Скасувати</b> для відміни.", parse_mode="html")
 
 @dp.message_handler(text="Видалити промокод")
 async def delete_promo_start(message: Message):
@@ -488,7 +505,7 @@ async def delete_promo_start(message: Message):
         for promo in promos:
             text += f"• <code>{promo['code']}</code> - {promo['attacks_count']} атак (до {promo['valid_until'].strftime('%d.%m.%Y %H:%M')})\n"
         
-        text += "\nВведіть код промокоду для видалення:"
+        text += "\nВведіть код промокоду для видалення:\n\n💡 Ви можете написати <b>Скасувати</b> для відміни."
         
         await Dialog.delete_promo.set()
         await message.answer(text, parse_mode='HTML')
@@ -497,20 +514,28 @@ async def delete_promo_start(message: Message):
 
 @dp.message_handler(state=Dialog.delete_promo)
 async def delete_promo_process(message: Message, state: FSMContext):
-    promo_code = message.text.strip().upper()
+    promo_code = message.text.strip()
+    
+    # Перевіряємо на скасування
+    if promo_code.lower() in ['скасувати', 'отмена', 'отмінити', 'cancel']:
+        await state.finish()
+        await message.answer("❌ Операцію скасовано.", reply_markup=profile_keyboard)
+        return
+    
+    promo_code = promo_code.upper()
     
     async with db_pool.acquire() as conn:
         # Перевіряємо існування промокоду
         promo = await conn.fetchrow('SELECT * FROM promocodes WHERE code = $1 AND is_active = TRUE', promo_code)
         
         if not promo:
-            await message.answer("Промокод не знайдено або вже видалено. Спробуйте ще раз:")
+            await message.answer("❌ Промокод не знайдено або вже видалено.\n\nВведіть код або напишіть <b>Скасувати</b> для відміни.", parse_mode="html")
             return
         
         # Деактивуємо промокод
         await conn.execute('UPDATE promocodes SET is_active = FALSE WHERE code = $1', promo_code)
     
-    await message.answer(f"✅ Промокод <code>{promo_code}</code> успішно видалено!", parse_mode='HTML')
+    await message.answer(f"✅ Промокод <code>{promo_code}</code> успішно видалено!", parse_mode='HTML', reply_markup=profile_keyboard)
     await state.finish()
 
 @dp.message_handler(text="Список промокодів")
@@ -744,7 +769,7 @@ async def broadcast_message(message: Message, state: FSMContext):
 @dp.message_handler(text="Додати номер до чорного списку")
 async def add_to_blacklist_start(message: Message):
     if message.from_user.id in ADMIN:
-        await message.answer("Введіть номер телефону для додавання до чорного списку:\nПриклад: <i>🇺🇦380xxxxxxxxx</i>", parse_mode="html")
+        await message.answer("🔴 <b>Додавання номера до чорного списку</b>\n\nВведіть номер телефону:\nПриклад: <i>🇺🇦380xxxxxxxxx</i>\n\n💡 Ви можете написати <b>Скасувати</b> для відміни операції.", parse_mode="html")
         await Dialog.add_to_blacklist.set()
     else:
         await message.answer("Недостатньо прав.")
@@ -753,21 +778,27 @@ async def add_to_blacklist_start(message: Message):
 async def add_to_blacklist_process(message: Message, state: FSMContext):
     phone = message.text.strip()
     
+    # Перевіряємо на скасування
+    if phone.lower() in ['скасувати', 'отмена', 'отмінити', 'cancel']:
+        await state.finish()
+        await message.answer("❌ Операцію скасовано.", reply_markup=profile_keyboard)
+        return
+    
     # Видаляємо всі символи окрім цифр
     phone = re.sub(r'\D', '', phone)
     if phone.startswith('0'):
         phone = '380' + phone[1:]
 
     if not re.match(r"^\d{12}$", phone):
-        await message.answer("Невірний формат номера.\nВведіть номер повторно.\nПриклад: <i>🇺🇦380XXXXXXXXX</i>", parse_mode="html")
+        await message.answer("❌ Невірний формат номера.\n\nВведіть номер повторно або напишіть <b>Скасувати</b> для відміни.\nПриклад: <i>🇺🇦380XXXXXXXXX</i>", parse_mode="html")
         return
 
     try:
         async with db_pool.acquire() as conn:
             await conn.execute("INSERT INTO blacklist (phone_number) VALUES ($1) ON CONFLICT DO NOTHING", phone)
-        await message.answer(f"✅ Номер {phone} додано до чорного списку.", parse_mode="html")
+        await message.answer(f"✅ Номер {phone} додано до чорного списку.", parse_mode="html", reply_markup=profile_keyboard)
     except Exception as e:
-        await message.answer("❌ Сталася помилка при додаванні номера до чорного списку.")
+        await message.answer("❌ Сталася помилка при додаванні номера до чорного списку.", parse_mode="html", reply_markup=profile_keyboard)
         logging.error(f"Помилка при додаванні в чорний список: {e}")
     
     await state.finish()
@@ -803,41 +834,59 @@ async def nonstart(message: Message):
 @dp.message_handler(text="Заблокувати користувача")
 async def block_user(message: Message):
     if message.from_user.id in ADMIN:
-        await message.answer("Введіть ID користувача для блокування:")
+        await message.answer("🔴 <b>Блокування користувача</b>\n\nВведіть ID користувача для блокування:\n\n💡 Ви можете написати <b>Скасувати</b> для відміни.", parse_mode="html")
         await Dialog.block_user.set()
     else:
         await message.answer("Недостатньо прав.")
 
 @dp.message_handler(state=Dialog.block_user)
 async def process_block(message: Message, state: FSMContext):
-    user_id = message.text
+    user_id = message.text.strip()
+    
+    # Перевіряємо на скасування
+    if user_id.lower() in ['скасувати', 'отмена', 'отмінити', 'cancel']:
+        await state.finish()
+        await message.answer("❌ Операцію скасовано.", reply_markup=profile_keyboard)
+        return
+    
     if user_id.isdigit():
         user_id = int(user_id)
         async with db_pool.acquire() as conn:
             await conn.execute("UPDATE users SET block = $1 WHERE user_id = $2", 1, user_id)
-        await message.answer(f"Користувача з ID {user_id} заблоковано.")
+        await message.answer(f"✅ Користувача з ID {user_id} заблоковано.", reply_markup=profile_keyboard)
     else:
-        await message.answer("Некоректний ID користувача. Будь ласка, введіть числовий ID.")
+        await message.answer("❌ Некоректний ID користувача.\n\nВведіть числовий ID або напишіть <b>Скасувати</b> для відміни.", parse_mode="html")
+        return
+    
     await state.finish()
 
 @dp.message_handler(text="Розблокувати користувача")
 async def unblock_user(message: Message):
     if message.from_user.id in ADMIN:
-        await message.answer("Введіть ID користувача для розблокування:")
+        await message.answer("🟢 <b>Розблокування користувача</b>\n\nВведіть ID користувача для розблокування:\n\n💡 Ви можете написати <b>Скасувати</b> для відміни.", parse_mode="html")
         await Dialog.unblock_user.set()
     else:
         await message.answer("Недостатньо прав.")
 
 @dp.message_handler(state=Dialog.unblock_user)
 async def process_unblock(message: Message, state: FSMContext):
-    user_id = message.text
+    user_id = message.text.strip()
+    
+    # Перевіряємо на скасування
+    if user_id.lower() in ['скасувати', 'отмена', 'отмінити', 'cancel']:
+        await state.finish()
+        await message.answer("❌ Операцію скасовано.", reply_markup=profile_keyboard)
+        return
+    
     if user_id.isdigit():
         user_id = int(user_id)
         async with db_pool.acquire() as conn:
             await conn.execute("UPDATE users SET block = $1 WHERE user_id = $2", 0, user_id)
-        await message.answer(f"Користувача з ID {user_id} розблоковано.")
+        await message.answer(f"✅ Користувача з ID {user_id} розблоковано.", reply_markup=profile_keyboard)
     else:
-        await message.answer("Некоректний ID користувача. Будь ласка, введіть числовий ID.")
+        await message.answer("❌ Некоректний ID користувача.\n\nВведіть числовий ID або напишіть <b>Скасувати</b> для відміни.", parse_mode="html")
+        return
+    
     await state.finish()
 
 @dp.message_handler(text="Реферали")
@@ -917,6 +966,7 @@ async def referral_program(message: types.Message):
     user_id = message.from_user.id
     
     if not await user_exists(user_id):
+        
         await message.answer("Для використання бота потрібно натиснути /start")
         return
     
