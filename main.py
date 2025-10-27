@@ -71,8 +71,6 @@ async def init_db():
                 username TEXT,
                 block INTEGER DEFAULT 0,
                 attacks_left INTEGER DEFAULT 6,
-信息的输出似乎被截断了，我会完成当前的思路并继续。
-                attacks_left INTEGER DEFAULT 6,
                 promo_attacks INTEGER DEFAULT 0,
                 referral_attacks INTEGER DEFAULT 0,
                 unused_referral_attacks INTEGER DEFAULT 0,
