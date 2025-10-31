@@ -155,9 +155,9 @@ async def init_db():
         except Exception as e:
             logging.error(f"Error normalizing attacks_left defaults: {e}")
 
-    # Load proxies from local file (if present)
+    # Load proxies from local files (if present)
     try:
-        await load_proxies_from_file("proxy")
+        await load_proxies_from_possible_files()
     except Exception as e:
         logging.error(f"Proxy file load error: {e}")
 
@@ -604,6 +604,14 @@ async def proxy_check_menu(message: Message):
         await message.answer('Недостатньо прав.')
         return
     await message.answer('🔎 Запускаю перевірку проксі...')
+    # If empty, try to (re)load from files first
+    async with db_pool.acquire() as conn:
+        count = await conn.fetchval('SELECT COUNT(*) FROM proxies WHERE is_active = TRUE')
+    if not count:
+        try:
+            await load_proxies_from_possible_files()
+        except Exception as e:
+            logging.error(f"Reload proxies error: {e}")
     await ensure_recent_proxy_check(max_age_minutes=0)
     # Формуємо звіт
     async with db_pool.acquire() as conn:
@@ -1371,6 +1379,14 @@ async def load_proxies_from_file(file_path: str):
                 await conn.execute('INSERT INTO proxies (proxy_url) VALUES ($1) ON CONFLICT (proxy_url) DO NOTHING', url)
             except Exception as e:
                 logging.error(f"Failed to insert proxy {url}: {e}")
+
+async def load_proxies_from_possible_files():
+    # Try common filenames in order
+    for name in ["proxy", "proxy.txt", "proxies", "proxies.txt"]:
+        try:
+            await load_proxies_from_file(name)
+        except Exception as e:
+            logging.error(f"Failed to load from {name}: {e}")
 
 @dp.message_handler(lambda message: message.text and not message.text.startswith('/start'), content_types=['text'])
 @dp.throttled(anti_flood, rate=3)
