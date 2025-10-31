@@ -263,7 +263,7 @@ profile_button = types.KeyboardButton('🎯 Почати атаку')
 referal_button = types.KeyboardButton('🆘 Допомога')
 referral_program_button = types.KeyboardButton('🎪 Запросити друга')
 check_attacks_button = types.KeyboardButton('❓ Перевірити атаки')
-promo_code_button = types.KeyboardButton('У мене є промокод')
+promo_code_button = types.KeyboardButton('😋У мене є промокод')
 profile_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True).add(profile_button, referal_button).add(referral_program_button, check_attacks_button).add(promo_code_button)
 
 admin_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -278,7 +278,6 @@ admin_keyboard.add("Видалити промокод")
 admin_keyboard.add("Список промокодів")
 admin_keyboard.add("Перевірка проксі")
 admin_keyboard.add("Увімкнути/вимкнути проксі")
-admin_keyboard.add("Перезавантажити проксі з файлу")
 admin_keyboard.add("Назад")
 
 def generate_promo_code():
@@ -696,33 +695,6 @@ async def toggle_proxies(message: Message):
     USE_PROXIES = not USE_PROXIES
     status = "увімкнено" if USE_PROXIES else "вимкнено"
     await message.answer(f"✅ Проксі тепер <b>{status}</b>", parse_mode='HTML')
-
-@dp.message_handler(text="Перезавантажити проксі з файлу")
-async def reload_proxies(message: Message):
-    if message.from_user.id not in ADMIN:
-        await message.answer('Недостатньо прав.')
-        return
-    await message.answer('🔄 Перезавантажую проксі з файлу...')
-    try:
-        # Очищаємо кеш проксі
-        async with _proxy_cache_lock:
-            _proxy_cache.clear()
-            _proxy_weights.clear()
-            _proxy_circuit_breaker.clear()
-        
-        # Завантажуємо з файлів
-        await load_proxies_from_possible_files()
-        # Нормалізуємо існуючі
-        await normalize_existing_proxies()
-        
-        # Рахуємо скільки проксі завантажено
-        async with db_pool.acquire() as conn:
-            count = await conn.fetchval('SELECT COUNT(*) FROM proxies WHERE is_active = TRUE')
-        
-        await message.answer(f"✅ Проксі перезавантажено!\n\n📊 Всього активних проксі: <b>{count}</b>", parse_mode='HTML')
-    except Exception as e:
-        logging.error(f"[PROXY] Error reloading proxies: {e}")
-        await message.answer(f"❌ Помилка при перезавантаженні проксі: {e}")
 
 # ПРОМОКОДЫ - ПОЛЬЗОВАТЕЛИ
 
