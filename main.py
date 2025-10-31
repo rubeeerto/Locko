@@ -28,11 +28,51 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 import urllib.parse
 import itertools
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    # Для Python < 3.9 використовуємо pytz
+    try:
+        import pytz
+        ZoneInfo = None
+    except ImportError:
+        ZoneInfo = None
+        pytz = None
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 ADMIN = [810944378]
 channel_id = "-1003203193556"
+
+# Функція для отримання поточної дати за київським часом
+def get_kyiv_date():
+    """Повертає поточну дату за київським часом"""
+    if ZoneInfo:
+        # Python 3.9+
+        kyiv_tz = ZoneInfo("Europe/Kyiv")
+        return datetime.now(kyiv_tz).date()
+    elif pytz:
+        # Python < 3.9 з pytz
+        kyiv_tz = pytz.timezone("Europe/Kyiv")
+        return datetime.now(kyiv_tz).date()
+    else:
+        # Fallback - використовуємо системний час (не ідеально, але краще нічого)
+        return datetime.now().date()
+
+# Функція для отримання поточного datetime за київським часом
+def get_kyiv_datetime():
+    """Повертає поточний datetime за київським часом"""
+    if ZoneInfo:
+        # Python 3.9+
+        kyiv_tz = ZoneInfo("Europe/Kyiv")
+        return datetime.now(kyiv_tz)
+    elif pytz:
+        # Python < 3.9 з pytz
+        kyiv_tz = pytz.timezone("Europe/Kyiv")
+        return datetime.now(kyiv_tz)
+    else:
+        # Fallback - використовуємо системний час
+        return datetime.now()
 
 message = ("Привіт.\nВаш вибір: 👇")
 
@@ -303,7 +343,7 @@ def generate_promo_code():
     return ''.join(random.choices(characters, k=length))
 
 async def add_user(user_id: int, name: str, username: str, referrer_id: int = None):
-    today = datetime.now().date()
+    today = get_kyiv_date()
     async with db_pool.acquire() as conn:
         await conn.execute(
             'INSERT INTO users (user_id, name, username, block, attacks_left, promo_attacks, referral_attacks, unused_referral_attacks, last_attack_date, referrer_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (user_id) DO NOTHING',
@@ -1418,7 +1458,7 @@ async def handle_phone_number(message: Message):
         async with db_pool.acquire() as conn:
             await conn.execute(
                 'UPDATE users SET last_attack_date = $1 WHERE user_id = $2',
-                datetime.now(), user_id
+                get_kyiv_datetime(), user_id
             )
         cancel_keyboard = get_cancel_keyboard()
         attack_flags[chat_id] = True 
@@ -1446,7 +1486,7 @@ async def cancel_attack(callback_query: types.CallbackQuery):
         pass
 
 async def check_attack_limits(user_id: int):
-    today = datetime.now().date()
+    today = get_kyiv_date()
     
     async with db_pool.acquire() as conn:
         result = await conn.fetchrow(
@@ -1474,13 +1514,23 @@ async def check_attack_limits(user_id: int):
             # Реферальні атаки скидаються (вони дійсні тільки на один день)
             # Скидаємо звичайні атаки на 30 (максимум на день)
             new_attacks = 30
+            kyiv_now = get_kyiv_datetime()
             await conn.execute(
                 "UPDATE users SET attacks_left = $1, referral_attacks = 0, unused_referral_attacks = 0, last_attack_date = $2 WHERE user_id = $3",
-                new_attacks, today, user_id
+                new_attacks, kyiv_now, user_id
             )
             attacks_left = new_attacks
             referral_attacks = 0
             unused_referral_attacks = 0
+        elif attacks_left < 30:
+            # Якщо це поточний день, але атак менше 30 - встановлюємо 30
+            # Це виправляє ситуації, коли в базі було старе значення
+            new_attacks = 30
+            await conn.execute(
+                "UPDATE users SET attacks_left = $1 WHERE user_id = $2",
+                new_attacks, user_id
+            )
+            attacks_left = new_attacks
         
         total_attacks = attacks_left + promo_attacks + referral_attacks
         can_attack = total_attacks > 0
