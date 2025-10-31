@@ -1183,8 +1183,9 @@ async def ukr(number, chat_id):
             return None, None
         try:
             p = proxies[i % len(proxies)]
-            url, auth = parse_proxy_for_aiohttp(p)
-            logging.info(f"[PROXY] Pick proxy[{i}] => {mask_proxy_for_log(p)} -> {url}")
+            normalized = normalize_proxy_string(p)
+            url, auth = parse_proxy_for_aiohttp(normalized)
+            logging.info(f"[PROXY] Pick proxy[{i}] => {mask_proxy_for_log(normalized)} -> {url}")
             return url, auth
         except Exception as e:
             logging.error(f"Помилка парсингу проксі: {e}")
@@ -1217,9 +1218,15 @@ async def ukr(number, chat_id):
                 
             timeout = aiohttp.ClientTimeout(total=5)
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(url, **kwargs) as response:
-                    if response.status == 200:
-                        logging.info(f"Успіх - {number}")
+                method = kwargs.pop('method', 'POST')
+                if method == 'GET':
+                    async with session.get(url, **kwargs) as response:
+                        if response.status == 200:
+                            logging.info(f"Успіх - {number}")
+                else:
+                    async with session.post(url, **kwargs) as response:
+                        if response.status == 200:
+                            logging.info(f"Успіх - {number}")
         except asyncio.TimeoutError:
             logging.error(f"Таймаут при запиті до {url}")
         except aiohttp.ClientError as e:
@@ -1379,24 +1386,56 @@ def mask_proxy_for_log(proxy_str: str) -> str:
     except Exception:
         return proxy_str
 
+def normalize_proxy_string(raw: str) -> str:
+    # Convert multiple known forms to scheme://user:pass@host:port or scheme://host:port
+    import re
+    if '://' not in raw:
+        parts = raw.split(':')
+        if len(parts) == 4:
+            host, port, user, pwd = parts
+            return f"http://{user}:{pwd}@{host}:{port}"
+        if len(parts) == 2:
+            host, port = parts
+            return f"http://{host}:{port}"
+        return raw
+    m = re.match(r'^(?P<sch>https?|socks5)://(?P<host>[^:/]+):(?P<port>\d+):(?P<user>[^:]+):(?P<pwd>.+)$', raw)
+    if m:
+        sch = m.group('sch')
+        host = m.group('host')
+        port = m.group('port')
+        user = m.group('user')
+        pwd = m.group('pwd')
+        return f"{sch}://{user}:{pwd}@{host}:{port}"
+    return raw
+
 async def check_proxy(proxy_url: str, timeout_sec: int = 5) -> tuple:
     start = asyncio.get_event_loop().time()
-    url, auth = parse_proxy_for_aiohttp(proxy_url)
+    # Normalize on the fly for safety
     try:
-        logging.info(f"[PROXY] Checking {mask_proxy_for_log(proxy_url)} via {url}")
+        normalized = normalize_proxy_string(proxy_url)
+    except Exception:
+        normalized = proxy_url
+    url, auth = parse_proxy_for_aiohttp(normalized)
+    try:
+        logging.info(f"[PROXY] Checking {mask_proxy_for_log(normalized)} via {url}")
         timeout = aiohttp.ClientTimeout(total=timeout_sec)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get('https://api.ipify.org?format=json', proxy=url, proxy_auth=auth) as resp:
                 ok = resp.status == 200
                 latency = int((asyncio.get_event_loop().time() - start) * 1000)
-                logging.info(f"[PROXY] Result {mask_proxy_for_log(proxy_url)} => ok={ok}, latency={latency}ms, status={resp.status}")
+                logging.info(f"[PROXY] Result {mask_proxy_for_log(normalized)} => ok={ok}, latency={latency}ms, status={resp.status}")
                 return ok, latency
     except Exception as e:
         latency = int((asyncio.get_event_loop().time() - start) * 1000)
-        logging.error(f"[PROXY] Error {mask_proxy_for_log(proxy_url)} => {e}, latency={latency}ms")
+        logging.error(f"[PROXY] Error {mask_proxy_for_log(normalized)} => {e}, latency={latency}ms")
         return False, latency
 
 async def ensure_recent_proxy_check(max_age_minutes: int = 10):
+    # Normalize any legacy proxy formats before checking
+    try:
+        await normalize_existing_proxies()
+    except Exception as e:
+        logging.error(f"[PROXY] Normalize before check failed: {e}")
     async with db_pool.acquire() as conn:
         proxies = await conn.fetch('SELECT id, proxy_url, last_check, success_count, fail_count FROM proxies WHERE is_active = TRUE')
     now = datetime.now()
