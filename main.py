@@ -953,7 +953,7 @@ async def help(message: types.Message):
     inline_keyboard = types.InlineKeyboardMarkup()
     code_sub = types.InlineKeyboardButton(text='🎪 Канал', url='https://t.me/+tod0WSFEpEQ2ODcy')
     inline_keyboard = inline_keyboard.add(code_sub)
-    await bot.send_message(message.chat.id, "Виникли питання? Звертайся до @ABOBA", disable_web_page_preview=True, parse_mode="HTML", reply_markup=inline_keyboard)
+    await bot.send_message(message.chat.id, "Виникли питання? Звертайся до @@Nobysssle_web_page_preview=True, parse_mode="HTML", reply_markup=inline_keyboard)
 
 
 
@@ -1221,7 +1221,7 @@ async def start_attack(number, chat_id):
 🔥 Сподобалась робота бота? 
 Допоможи нам зростати — запроси друга!
 
-💬 Якщо є питання або пропозиції, звертайся до @ABOBA 
+💬 Якщо є питання або пропозиції, звертайся до @@Nobysss
 
 Приєднуйся до нашого ком'юніті 👇""",
         parse_mode="html",
