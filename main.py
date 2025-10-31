@@ -158,6 +158,7 @@ async def init_db():
     # Load proxies from local files (if present)
     try:
         await load_proxies_from_possible_files()
+        await normalize_existing_proxies()
     except Exception as e:
         logging.error(f"Proxy file load error: {e}")
 
@@ -219,9 +220,9 @@ async def anti_flood(*args, **kwargs):
 profile_button = types.KeyboardButton('🎯 Почати атаку')
 referal_button = types.KeyboardButton('🆘 Допомога')
 referral_program_button = types.KeyboardButton('🎪 Запросити друга')
-# check_attacks_button = types.KeyboardButton('❓ Перевірити атаки')  # Прибрано
+check_attacks_button = types.KeyboardButton('❓ Перевірити атаки')
 # promo_button = types.KeyboardButton('Промокод 🎁')  # Прибрано
-profile_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True).add(profile_button, referal_button).add(referral_program_button)
+profile_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True).add(profile_button, referal_button).add(referral_program_button, check_attacks_button)
 
 admin_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
 admin_keyboard.add("Надіслати повідомлення користувачам")
@@ -1083,6 +1084,49 @@ async def referral_program(message: types.Message):
     
     await message.answer(message_text, parse_mode='HTML', reply_markup=keyboard)
 
+@dp.message_handler(text='❓ Перевірити атаки')
+@dp.throttled(anti_flood, rate=3)
+async def check_attacks(message: types.Message):
+    # Перевіряємо, що повідомлення з особистого чату
+    if message.chat.type != 'private':
+        return
+    
+    user_id = message.from_user.id
+    
+    if not await user_exists(user_id):
+        await message.answer("Для використання бота потрібно натиснути /start")
+        return
+    
+    async with db_pool.acquire() as conn:
+        result = await conn.fetchrow("SELECT block FROM users WHERE user_id = $1", user_id)
+    
+    if result and result['block'] == 1:
+        await message.answer("Вас заблоковано і ви не можете користуватися ботом.")
+        return
+
+    if not await check_subscription_status(user_id):
+        await message.answer("Ви відписалися від каналу. Підпишіться, щоб продовжити використання бота.", reply_markup=checkSubMenu)
+        return
+    
+    # Отримуємо актуальну інформацію про атаки
+    can_attack, attacks_left, promo_attacks, referral_attacks = await check_attack_limits(user_id)
+    total_attacks = attacks_left + promo_attacks + referral_attacks
+    
+    message_text = "📊 <b>Ваші атаки:</b>\n\n"
+    message_text += f"⚔️ Звичайні атаки: {attacks_left}\n"
+    if promo_attacks > 0:
+        message_text += f"🎁 Промо атаки: {promo_attacks}\n"
+    if referral_attacks > 0:
+        message_text += f"🎪 Реферальні атаки: {referral_attacks}\n"
+    message_text += f"\n💥 <b>Всього доступно: {total_attacks}</b>\n\n"
+    
+    if total_attacks > 0:
+        message_text += "✅ Ви можете розпочати атаку!"
+    else:
+        message_text += "❌ На сьогодні ліміт атак вичерпано. Чекаємо на вас завтра або ви можете скористуватись промокодом чи рефералом."
+    
+    await message.answer(message_text, parse_mode='HTML')
+
 @dp.message_handler(text='🎯 Почати атаку')
 async def start_attack_prompt(message: Message):
     # Перевіряємо, що повідомлення з особистого чату
@@ -1407,10 +1451,12 @@ async def load_proxies_from_file(file_path: str):
         if not line or line.startswith('#'):
             continue
         raw = line
-        # Support formats: host:port:user:pass or scheme://user:pass@host:port
-        if '://' in raw:
-            url = raw
-        else:
+        # Support formats:
+        # - host:port
+        # - host:port:user:pass
+        # - scheme://user:pass@host:port
+        # - scheme://host:port:user:pass (convert to scheme://user:pass@host:port)
+        if '://' not in raw:
             parts = raw.split(':')
             if len(parts) == 4:
                 host, port, user, pwd = parts
@@ -1422,6 +1468,22 @@ async def load_proxies_from_file(file_path: str):
                 url = raw
                 if not (url.startswith('http://') or url.startswith('https://') or url.startswith('socks5://')):
                     url = 'http://' + url
+        else:
+            # Has scheme; try to detect scheme://host:port:user:pass
+            try:
+                import re
+                m = re.match(r'^(?P<sch>https?|socks5)://(?P<host>[^:/]+):(?P<port>\d+):(?P<user>[^:]+):(?P<pwd>.+)$', raw)
+                if m:
+                    sch = m.group('sch')
+                    host = m.group('host')
+                    port = m.group('port')
+                    user = m.group('user')
+                    pwd = m.group('pwd')
+                    url = f"{sch}://{user}:{pwd}@{host}:{port}"
+                else:
+                    url = raw
+            except Exception:
+                url = raw
         cleaned.append(url)
     if not cleaned:
         return
@@ -1442,6 +1504,29 @@ async def load_proxies_from_possible_files():
         except Exception as e:
             logging.error(f"Failed to load from {name}: {e}")
 
+async def normalize_existing_proxies():
+    # Convert any scheme://host:port:user:pass rows to scheme://user:pass@host:port
+    import re
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch('SELECT id, proxy_url FROM proxies')
+    updates = []
+    for r in rows:
+        raw = r['proxy_url']
+        m = re.match(r'^(?P<sch>https?|socks5)://(?P<host>[^:/]+):(?P<port>\d+):(?P<user>[^:]+):(?P<pwd>.+)$', raw)
+        if m:
+            sch = m.group('sch')
+            host = m.group('host')
+            port = m.group('port')
+            user = m.group('user')
+            pwd = m.group('pwd')
+            new_url = f"{sch}://{user}:{pwd}@{host}:{port}"
+            updates.append((new_url, r['id']))
+    if updates:
+        logging.info(f"[PROXY] Normalizing {len(updates)} proxy URLs in DB")
+        async with db_pool.acquire() as conn:
+            for new_url, pid in updates:
+                await conn.execute('UPDATE proxies SET proxy_url=$1 WHERE id=$2', new_url, pid)
+
 @dp.message_handler(lambda message: message.text and not message.text.startswith('/start'), content_types=['text'])
 @dp.throttled(anti_flood, rate=3)
 async def handle_phone_number(message: Message):
@@ -1450,7 +1535,7 @@ async def handle_phone_number(message: Message):
         return  # Ігноруємо повідомлення з груп
     
     # Ігноруємо текст кнопок
-    button_texts = ['🆘 Допомога', '🎪 Запросити друга', '🎯 Почати атаку']
+    button_texts = ['🆘 Допомога', '🎪 Запросити друга', '🎯 Почати атаку', '❓ Перевірити атаки']
     if message.text in button_texts or message.text.strip().startswith('/stats'):
         return
     
@@ -1494,10 +1579,13 @@ async def handle_phone_number(message: Message):
         async with db_pool.acquire() as conn:
             if promo_attacks > 0:
                 await conn.execute('UPDATE users SET promo_attacks = promo_attacks - 1, last_attack_date = $1 WHERE user_id = $2', datetime.now(), user_id)
+                logging.info(f"[ATTACKS] User {user_id}: Spent 1 promo attack (was {promo_attacks}, now {promo_attacks - 1})")
             elif referral_attacks > 0:
                 await conn.execute('UPDATE users SET referral_attacks = referral_attacks - 1, last_attack_date = $1 WHERE user_id = $2', datetime.now(), user_id)
+                logging.info(f"[ATTACKS] User {user_id}: Spent 1 referral attack (was {referral_attacks}, now {referral_attacks - 1})")
             else:
                 await conn.execute('UPDATE users SET attacks_left = attacks_left - 1, last_attack_date = $1 WHERE user_id = $2', datetime.now(), user_id)
+                logging.info(f"[ATTACKS] User {user_id}: Spent 1 regular attack (was {attacks_left}, now {attacks_left - 1})")
         cancel_keyboard = get_cancel_keyboard()
         attack_flags[chat_id] = True 
         await message.answer(f'🎯 Місія розпочата!\n\n📱 Ціль: <i>{number}</i>\n\n⚡ Статус: В процесі...', parse_mode="html", reply_markup=get_cancel_keyboard())
@@ -1547,12 +1635,24 @@ async def check_attack_limits(user_id: int):
                 "UPDATE users SET attacks_left = $1, referral_attacks = 0, unused_referral_attacks = 0, last_attack_date = $2 WHERE user_id = $3",
                 new_attacks, today, user_id
             )
+            # Оновлюємо локальні змінні після оновлення БД
             attacks_left = new_attacks
             referral_attacks = 0
             unused_referral_attacks = 0
+            # Перечитую з БД для гарантії актуальності
+            result = await conn.fetchrow(
+                "SELECT attacks_left, promo_attacks, referral_attacks, unused_referral_attacks FROM users WHERE user_id = $1",
+                user_id
+            )
+            if result:
+                attacks_left = result['attacks_left']
+                promo_attacks = result['promo_attacks']
+                referral_attacks = result['referral_attacks']
         
         total_attacks = attacks_left + promo_attacks + referral_attacks
         can_attack = total_attacks > 0
+        
+        logging.info(f"[ATTACKS] User {user_id}: total={total_attacks}, left={attacks_left}, promo={promo_attacks}, ref={referral_attacks}, can_attack={can_attack}")
         
         return can_attack, attacks_left, promo_attacks, referral_attacks
 
