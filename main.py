@@ -1237,7 +1237,7 @@ async def handle_phone_number(message: Message):
     
     # Ігноруємо текст кнопок
     button_texts = ['🆘 Допомога', '🎪 Запросити друга', '🎯 Почати атаку']
-    if message.text in button_texts:
+    if message.text in button_texts or message.text.strip().startswith('/stats'):
         return
     
     user_id = message.from_user.id
