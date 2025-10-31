@@ -73,7 +73,8 @@ async def get_http_session():
     async with _session_lock:
         if _http_session is None or _http_session.closed:
             connector = aiohttp.TCPConnector(limit=100, limit_per_host=20, ttl_dns_cache=300)
-            timeout = aiohttp.ClientTimeout(total=10, connect=3, sock_read=5)
+            # Таймаути вимкнено для плавної роботи
+            timeout = None
             _http_session = aiohttp.ClientSession(
                 connector=connector,
                 timeout=timeout,
@@ -1414,11 +1415,12 @@ async def ukr(number, chat_id, proxy_counter=None, shuffled_proxies_list=None):
                                 return True
                 return False
             except asyncio.TimeoutError:
+                # Таймаути вимкнені, але залишаємо обробку на випадок інших помилок
                 if attempt < MAX_RETRIES:
-                    logging.debug(f"[ATTACK] Timeout retry {attempt+1} for {url}")
+                    logging.debug(f"[ATTACK] Retry {attempt+1} for {url}")
                     await asyncio.sleep(0.2 * (attempt + 1))
                     continue
-                logging.debug(f"[ATTACK] Timeout after {MAX_RETRIES+1} attempts: {url}")
+                logging.debug(f"[ATTACK] Failed after {MAX_RETRIES+1} attempts: {url}")
                 # Update circuit breaker для проксі
                 if original_proxy and USE_PROXIES:
                     now = asyncio.get_event_loop().time()
@@ -1440,8 +1442,8 @@ async def ukr(number, chat_id, proxy_counter=None, shuffled_proxies_list=None):
         
         return False
 
-    # Збільшуємо паралелізм для кращої продуктивності
-    semaphore = asyncio.Semaphore(12)
+    # Semaphore для контролю паралелізму (зменшено для плавної роботи)
+    semaphore = asyncio.Semaphore(8)
     
     async def bounded_request(url, **kwargs):
         if not attack_flags.get(chat_id):
@@ -1530,12 +1532,34 @@ async def ukr(number, chat_id, proxy_counter=None, shuffled_proxies_list=None):
     random.shuffle(tasks)
     logging.debug(f"[ATTACK] Перемішано {len(tasks)} сервісів")
     
-    # Виконуємо паралельно (gather) для кращої продуктивності
-    # з каскадною логікою: спочатку швидкі, потім повільніші
-    try:
-        await asyncio.gather(*tasks, return_exceptions=True)
-    except Exception as e:
-        logging.debug(f"[ATTACK] Gather exception (non-critical): {e}")
+    # Плавне надсилання повідомлень: розділяємо на батчі з паузами для стабільності
+    BATCH_SIZE = 5  # По 5 запитів одночасно
+    DELAY_BETWEEN_BATCHES = 0.2  # 200мс пауза між батчами
+    DELAY_BETWEEN_REQUESTS = 0.05  # 50мс пауза між окремими запитами в батчі
+    
+    async def execute_with_delay(task, delay):
+        """Виконує task з затримкою для плавного надсилання"""
+        await asyncio.sleep(delay)
+        return await task
+    
+    for i in range(0, len(tasks), BATCH_SIZE):
+        batch = tasks[i:i + BATCH_SIZE]
+        
+        # Виконуємо батч паралельно з невеликими затримками між запитами
+        batch_tasks = [execute_with_delay(task, j * DELAY_BETWEEN_REQUESTS) for j, task in enumerate(batch)]
+        
+        try:
+            await asyncio.gather(*batch_tasks, return_exceptions=True)
+        except Exception as e:
+            logging.debug(f"[ATTACK] Batch exception (non-critical): {e}")
+        
+        # Пауза між батчами (крім останнього) для стабільності
+        if i + BATCH_SIZE < len(tasks):
+            await asyncio.sleep(DELAY_BETWEEN_BATCHES)
+        
+        # Перевіряємо чи не зупинено атаку
+        if not attack_flags.get(chat_id):
+            return
 
 async def start_attack(number, chat_id, status_message_id: int = None):
     global attack_flags
@@ -1735,7 +1759,7 @@ def normalize_proxy_string(raw: str) -> str:
         return f"{sch}://{user}:{pwd}@{host}:{port}"
     return raw
 
-async def check_proxy(proxy_url: str, timeout_sec: int = 5) -> tuple:
+async def check_proxy(proxy_url: str, timeout_sec: int = None) -> tuple:
     start = asyncio.get_event_loop().time()
     # Normalize on the fly for safety
     try:
@@ -1747,7 +1771,8 @@ async def check_proxy(proxy_url: str, timeout_sec: int = 5) -> tuple:
         logging.debug(f"[PROXY] Checking {mask_proxy_for_log(normalized)} via {url}")
         # Використовуємо перевикористану сесію або створюємо нову для чекінгу
         session = await get_http_session()
-        timeout = aiohttp.ClientTimeout(total=timeout_sec)
+        # Таймаут вимкнено для плавної роботи
+        timeout = None if timeout_sec is None else aiohttp.ClientTimeout(total=timeout_sec)
         async with session.get('https://api.ipify.org?format=json', proxy=url, proxy_auth=auth, timeout=timeout) as resp:
             ok = resp.status == 200
             latency = int((asyncio.get_event_loop().time() - start) * 1000)
