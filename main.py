@@ -306,34 +306,12 @@ async def add_user(user_id: int, name: str, username: str, referrer_id: int = No
     async with db_pool.acquire() as conn:
         await conn.execute(
             'INSERT INTO users (user_id, name, username, block, attacks_left, promo_attacks, referral_attacks, unused_referral_attacks, last_attack_date, referrer_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (user_id) DO NOTHING',
-            user_id, name, username, 0, 6, 0, 0, 0, today, referrer_id
+            user_id, name, username, 0, 30, 0, 0, 0, today, referrer_id
         )
         
         if referrer_id:
-            await conn.execute(
-                'INSERT INTO referrals (referrer_id, referred_id) VALUES ($1, $2) ON CONFLICT (referred_id) DO NOTHING',
-                referrer_id, user_id
-            )
-            
-            await conn.execute(
-                'UPDATE users SET referral_attacks = referral_attacks + 10, referral_count = referral_count + 1 WHERE user_id = $1',
-                referrer_id
-            )
-
-            await conn.execute(
-                'UPDATE users SET referral_attacks = referral_attacks + 10 WHERE user_id = $1',
-                user_id
-            )
-
-            try:
-                ref_name = username or name or f"User{user_id}"
-                await bot.send_message(
-                    referrer_id,
-                    f"🎉 За вашим посиланням приєднався новий користувач: <a href='tg://user?id={user_id}'>{ref_name}</a>\n🚀 Ви отримали +10 додаткових атак!",
-                    parse_mode='HTML'
-                )
-            except Exception as e:
-                logging.error(f"Error notifying referrer {referrer_id}: {e}")
+            # Використовуємо функцію process_referral для обробки рефералів
+            await process_referral(referrer_id, user_id, username, name)
         
         profile_link = f'<a href="tg://user?id={user_id}">{name}</a>'
         for admin_id in ADMIN:
@@ -387,10 +365,7 @@ async def start(message: Message):
     else:
         if result is None:
             # Новий користувач — додаємо з реферальним id, якщо є
-            await add_user(message.from_user.id, message.from_user.full_name, message.from_user.username, None)
-            # Після додавання користувача нараховуємо реферальні атаки, якщо є реферер
-            if referrer_id:
-                await process_referral(referrer_id, message.from_user.id, message.from_user.username, message.from_user.full_name)
+            await add_user(message.from_user.id, message.from_user.full_name, message.from_user.username, referrer_id)
         
         if result and result['block'] == 1:
             await message.answer("Вас заблоковано і ви не можете користуватися ботом.")
@@ -434,24 +409,11 @@ async def process_subscription_confirmation(callback_query: types.CallbackQuery)
                 except Exception as e:
                     logging.error(f"Помилка при отриманні referrer_id: {e}")
                 
-                await add_user(callback_query.from_user.id, callback_query.from_user.full_name, callback_query.from_user.username, None)
-                # Після додавання користувача нараховуємо реферальні атаки, якщо є реферер
-                if referrer_id:
-                    await process_referral(referrer_id, callback_query.from_user.id, callback_query.from_user.username, callback_query.from_user.full_name)
+                # Додаємо користувача з реферальним ID, якщо є
+                await add_user(callback_query.from_user.id, callback_query.from_user.full_name, callback_query.from_user.username, referrer_id)
                 
+                # Перевіряємо, чи досягнуто 20 рефералів для повідомлення адміну
                 if referrer_id:
-                    await conn.execute(
-                        'UPDATE users SET referral_count = referral_count + 1 WHERE user_id = $1',
-                        referrer_id
-                    )
-                    
-                    await conn.execute(
-                        'INSERT INTO referrals (referrer_id, referred_id) VALUES ($1, $2) ON CONFLICT (referred_id) DO NOTHING',
-                        referrer_id, user_id
-                    )
-                    
-                    logging.info(f"Друга зараховано: referrer_id={referrer_id}, referred_id={user_id}")
-                    
                     referrer_data = await conn.fetchrow(
                         'SELECT referral_count, referral_notification_sent FROM users WHERE user_id = $1',
                         referrer_id
@@ -1109,11 +1071,18 @@ async def referral_program(message: types.Message):
         )
     
     message_text = f"🎪 <b>Запросити друга</b>\n\n"
-    message_text += f"🔗 Ваше посилання для друга:\n<code>{referral_link}</code>\n\n"
-    message_text += "💡 <b>Як це працює?</b>\n"
-    message_text += "• 🎯 Поділися посиланням з другом\n"
-    message_text += "• 🎉 Коли друг підпишеться на канал — він стане частиною нашої спільноти\n"
-    message_text += "• 🚀 Завдяки тобі ми зможемо зростати та робити для тебе ще більше\n\n"
+    message_text += f"🔗 Ваше посилання:\n<code>{referral_link}</code>\n\n"
+    message_text += "💰 <b>Що ти отримуєш?</b>\n"
+    message_text += "✅ Ти (чел1) отримуєш <b>+10 атак на один день</b>\n"
+    message_text += "✅ Твій друг (чел2) також отримує <b>+10 атак на один день</b>\n\n"
+    message_text += "📋 <b>Як це працює?</b>\n"
+    message_text += "1️⃣ Скопіюй посилання вище\n"
+    message_text += "2️⃣ Відправ другу у Telegram\n"
+    message_text += "3️⃣ Коли друг натисне посилання і підпишеться на канал — ви обидва отримаєте по +10 атак на сьогодні!\n\n"
+    message_text += "⚡ <b>Важливо:</b>\n"
+    message_text += "• Атаки нараховуються тільки на поточний день\n"
+    message_text += "• Кожен новий друг = нові +10 атак для вас обох\n"
+    message_text += "• Обмежень на кількість запрошених друзів немає!\n\n"
     
     if referrals:
         message_text += f"📊 <b>Статистика:</b>\n"
@@ -1393,7 +1362,7 @@ async def handle_phone_number(message: Message):
         return  # Ігноруємо повідомлення з груп
     
     # Ігноруємо текст кнопок
-    button_texts = ['🆘 Допомога', '🎪 Запросити друга', '🎯 Почати атаку', '❓ Перевірити атаки']
+    button_texts = ['🆘 Допомога', '🎪 Запросити друга', '🎯 Почати атаку']
     if message.text in button_texts:
         return
     
@@ -1485,11 +1454,9 @@ async def check_attack_limits(user_id: int):
         
         # Перевіряємо, чи потрібно скинути атаки на новий день
         if last_attack_date_only != today:
-            # Зберігаємо невикористані реферальні атаки
-            if referral_attacks > 0:
-                unused_referral_attacks += referral_attacks
-            # Скидаємо звичайні атаки на 6, додаємо накопичені реферальні
-            new_attacks = 6 + unused_referral_attacks
+            # Реферальні атаки скидаються (вони дійсні тільки на один день)
+            # Скидаємо звичайні атаки на 30 (максимум на день)
+            new_attacks = 30
             await conn.execute(
                 "UPDATE users SET attacks_left = $1, referral_attacks = 0, unused_referral_attacks = 0, last_attack_date = $2 WHERE user_id = $3",
                 new_attacks, today, user_id
@@ -1863,22 +1830,35 @@ async def process_referral(referrer_id, user_id, username, name):
             'INSERT INTO referrals (referrer_id, referred_id) VALUES ($1, $2) ON CONFLICT (referred_id) DO NOTHING',
             referrer_id, user_id
         )
+        # Додаємо +10 атак запросившому (чел1)
         await conn.execute(
             'UPDATE users SET referral_attacks = referral_attacks + 10, referral_count = referral_count + 1 WHERE user_id = $1',
             referrer_id
         )
+        # Додаємо +10 атак запрошеному (чел2)
         await conn.execute(
             'UPDATE users SET referral_attacks = referral_attacks + 10 WHERE user_id = $1',
             user_id
         )
         try:
             ref_name = username or name or f"User{user_id}"
+            # Повідомлення запросившому (чел1)
             await bot.send_message(
                 referrer_id,
-                f"🎉 За вашим посиланням приєднався новий користувач: <a href='tg://user?id={user_id}'>{ref_name}</a>\n🚀 Ви отримали +10 додаткових атак!", parse_mode='HTML'
+                f"🎉 За вашим посиланням приєднався новий користувач: <a href='tg://user?id={user_id}'>{ref_name}</a>\n🚀 Ви отримали +10 додаткових атак на сьогодні!",
+                parse_mode='HTML'
             )
+            # Повідомлення запрошеному (чел2)
+            referrer_name_result = await conn.fetchrow('SELECT name, username FROM users WHERE user_id = $1', referrer_id)
+            if referrer_name_result:
+                referrer_name = referrer_name_result['username'] or referrer_name_result['name'] or f"User{referrer_id}"
+                await bot.send_message(
+                    user_id,
+                    f"🎉 Вітаю! Ви зареєструвались за посиланням від <a href='tg://user?id={referrer_id}'>{referrer_name}</a>\n🚀 Ви отримали +10 додаткових атак на сьогодні за реєстрацію!",
+                    parse_mode='HTML'
+                )
         except Exception as e:
-            logging.error(f"Error notifying referrer {referrer_id}: {e}")
+            logging.error(f"Error notifying users about referral: {e}")
 
 @dp.message_handler(text='❓ Перевірити атаки')
 async def check_user_attacks(message: types.Message):
