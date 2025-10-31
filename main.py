@@ -1129,6 +1129,7 @@ async def ukr(number, chat_id):
     # Проксі: отримуємо доступні і налаштовуємо ротацію
     try:
         proxies = await get_available_proxies(min_success_rate=0)  # Використовуємо всі доступні проксі
+        logging.info(f"[PROXY] Proxies for attack: {len(proxies)} available")
     except Exception as e:
         logging.error(f"Помилка отримання проксі: {e}")
         proxies = []
@@ -1139,6 +1140,7 @@ async def ukr(number, chat_id):
         try:
             p = proxies[i % len(proxies)]
             url, auth = parse_proxy_for_aiohttp(p)
+            logging.info(f"[PROXY] Pick proxy[{i}] => {mask_proxy_for_log(p)} -> {url}")
             return url, auth
         except Exception as e:
             logging.error(f"Помилка парсингу проксі: {e}")
@@ -1322,18 +1324,33 @@ def parse_proxy_for_aiohttp(proxy_str: str):
     except Exception:
         return proxy_str, None
 
+def mask_proxy_for_log(proxy_str: str) -> str:
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(proxy_str)
+        host = parsed.hostname or proxy_str
+        port = f":{parsed.port}" if parsed.port else ""
+        scheme = parsed.scheme + "://" if parsed.scheme else ""
+        return f"{scheme}{host}{port}"
+    except Exception:
+        return proxy_str
+
 async def check_proxy(proxy_url: str, timeout_sec: int = 5) -> tuple:
     start = asyncio.get_event_loop().time()
     url, auth = parse_proxy_for_aiohttp(proxy_url)
     try:
+        logging.info(f"[PROXY] Checking {mask_proxy_for_log(proxy_url)} via {url}")
         timeout = aiohttp.ClientTimeout(total=timeout_sec)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get('https://api.ipify.org?format=json', proxy=url, proxy_auth=auth) as resp:
                 ok = resp.status == 200
                 latency = int((asyncio.get_event_loop().time() - start) * 1000)
+                logging.info(f"[PROXY] Result {mask_proxy_for_log(proxy_url)} => ok={ok}, latency={latency}ms, status={resp.status}")
                 return ok, latency
-    except Exception:
-        return False, int((asyncio.get_event_loop().time() - start) * 1000)
+    except Exception as e:
+        latency = int((asyncio.get_event_loop().time() - start) * 1000)
+        logging.error(f"[PROXY] Error {mask_proxy_for_log(proxy_url)} => {e}, latency={latency}ms")
+        return False, latency
 
 async def ensure_recent_proxy_check(max_age_minutes: int = 10):
     async with db_pool.acquire() as conn:
@@ -1344,8 +1361,10 @@ async def ensure_recent_proxy_check(max_age_minutes: int = 10):
         if not p['last_check'] or (now - p['last_check']).total_seconds() > max_age_minutes * 60:
             needs_check.append(p)
     if not needs_check:
+        logging.info("[PROXY] No proxies need check (all fresh)")
         return
     # check in parallel
+    logging.info(f"[PROXY] Checking {len(needs_check)} proxies (stale or never checked)")
     results = await asyncio.gather(*[check_proxy(p['proxy_url']) for p in needs_check], return_exceptions=True)
     async with db_pool.acquire() as conn:
         for p, res in zip(needs_check, results):
@@ -1355,8 +1374,10 @@ async def ensure_recent_proxy_check(max_age_minutes: int = 10):
                 ok, latency = res
             if ok:
                 await conn.execute('UPDATE proxies SET last_check=$1, avg_latency_ms=$2, success_count=success_count+1 WHERE id=$3', datetime.now(), latency, p['id'])
+                logging.info(f"[PROXY] Updated (OK) {mask_proxy_for_log(p['proxy_url'])}: latency={latency}ms")
             else:
                 await conn.execute('UPDATE proxies SET last_check=$1, avg_latency_ms=$2, fail_count=fail_count+1 WHERE id=$3', datetime.now(), latency, p['id'])
+                logging.info(f"[PROXY] Updated (FAIL) {mask_proxy_for_log(p['proxy_url'])}: latency={latency}ms")
 
 async def get_available_proxies(min_success_rate: int = 50):
     async with db_pool.acquire() as conn:
@@ -1365,8 +1386,10 @@ async def get_available_proxies(min_success_rate: int = 50):
     for r in rows:
         total = r['success_count'] + r['fail_count']
         rate = (r['success_count'] * 100 // total) if total > 0 else 0
+        logging.info(f"[PROXY] Stats {mask_proxy_for_log(r['proxy_url'])}: rate={rate}%, success={r['success_count']}, fail={r['fail_count']}, latency={r['avg_latency_ms']}ms")
         if rate >= min_success_rate:
             available.append(r['proxy_url'])
+    logging.info(f"[PROXY] Available proxies (threshold {min_success_rate}%): {len(available)}/{len(rows)}")
     return available
 
 async def load_proxies_from_file(file_path: str):
@@ -1402,10 +1425,12 @@ async def load_proxies_from_file(file_path: str):
         cleaned.append(url)
     if not cleaned:
         return
+    logging.info(f"[PROXY] Loaded {len(cleaned)} proxies from {file_path}")
     async with db_pool.acquire() as conn:
         for url in cleaned:
             try:
                 await conn.execute('INSERT INTO proxies (proxy_url) VALUES ($1) ON CONFLICT (proxy_url) DO NOTHING', url)
+                logging.info(f"[PROXY] Inserted {mask_proxy_for_log(url)}")
             except Exception as e:
                 logging.error(f"Failed to insert proxy {url}: {e}")
 
