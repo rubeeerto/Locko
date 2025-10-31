@@ -209,9 +209,8 @@ async def anti_flood(*args, **kwargs):
 profile_button = types.KeyboardButton('🎯 Почати атаку')
 referal_button = types.KeyboardButton('🆘 Допомога')
 referral_program_button = types.KeyboardButton('🎪 Запросити друга')
-# check_attacks_button = types.KeyboardButton('❓ Перевірити атаки')  # Прибрано
-# promo_button = types.KeyboardButton('Промокод 🎁')  # Прибрано
-profile_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True).add(profile_button, referal_button).add(referral_program_button)
+check_attacks_button = types.KeyboardButton('❓ Перевірити атаки')
+profile_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True).add(profile_button, referal_button).add(referral_program_button, check_attacks_button)
 
 admin_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
 admin_keyboard.add("Надіслати повідомлення користувачам")
@@ -317,15 +316,20 @@ async def add_user(user_id: int, name: str, username: str, referrer_id: int = No
             )
             
             await conn.execute(
-                'UPDATE users SET referral_attacks = referral_attacks + 6, referral_count = referral_count + 1 WHERE user_id = $1',
+                'UPDATE users SET referral_attacks = referral_attacks + 10, referral_count = referral_count + 1 WHERE user_id = $1',
                 referrer_id
+            )
+
+            await conn.execute(
+                'UPDATE users SET referral_attacks = referral_attacks + 10 WHERE user_id = $1',
+                user_id
             )
 
             try:
                 ref_name = username or name or f"User{user_id}"
                 await bot.send_message(
                     referrer_id,
-                    f"🎉 За вашим посиланням приєднався новий користувач: <a href='tg://user?id={user_id}'>{ref_name}</a>\n🚀 Ви отримали +6 додаткових атак на один день!",
+                    f"🎉 За вашим посиланням приєднався новий користувач: <a href='tg://user?id={user_id}'>{ref_name}</a>\n🚀 Ви отримали +10 додаткових атак!",
                     parse_mode='HTML'
                 )
             except Exception as e:
@@ -1859,18 +1863,33 @@ async def process_referral(referrer_id, user_id, username, name):
             referrer_id, user_id
         )
         await conn.execute(
-            'UPDATE users SET referral_attacks = referral_attacks + 6, referral_count = referral_count + 1 WHERE user_id = $1',
+            'UPDATE users SET referral_attacks = referral_attacks + 10, referral_count = referral_count + 1 WHERE user_id = $1',
             referrer_id
+        )
+        await conn.execute(
+            'UPDATE users SET referral_attacks = referral_attacks + 10 WHERE user_id = $1',
+            user_id
         )
         try:
             ref_name = username or name or f"User{user_id}"
             await bot.send_message(
                 referrer_id,
-                f"🎉 За вашою реферальною силкою приєднався новий користувач: <a href='tg://user?id={user_id}'>{ref_name}</a>\n🚀 Ви отримали +6 додаткових атак на один день!",
-                parse_mode='HTML'
+                f"🎉 За вашим посиланням приєднався новий користувач: <a href='tg://user?id={user_id}'>{ref_name}</a>\n🚀 Ви отримали +10 додаткових атак!", parse_mode='HTML'
             )
         except Exception as e:
             logging.error(f"Error notifying referrer {referrer_id}: {e}")
+
+@dp.message_handler(text='❓ Перевірити атаки')
+async def check_user_attacks(message: types.Message):
+    user_id = message.from_user.id
+    can_attack, attacks_left, promo_attacks, referral_attacks = await check_attack_limits(user_id)
+    total = attacks_left + promo_attacks + referral_attacks
+    text = f'Ваші атаки на сьогодні:\n\n' \
+           f'Звичайних атак: {attacks_left}\n' \
+           f'Промо атак: {promo_attacks}\n' \
+           f'Реферальних атак: {referral_attacks}\n' \
+           f'Всього: {total} з 30 можливих.'
+    await message.answer(text)
 
 if __name__ == '__main__':
     logging.info("Запуск бота...")
