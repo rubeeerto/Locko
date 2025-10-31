@@ -1283,7 +1283,7 @@ async def handle_phone_number(message: Message):
 
         asyncio.create_task(start_attack(number, chat_id))
     else:
-        await message.answer("Невірний формат номера.\nВведіть номер повторно.\nПриклад: <i>🇺🇦380XXXXXXXXX</i>", parse_mode="html")
+        await message.answer("⚠️ Ви некоректно ввели номер телефону!\nБудь ласка, перевірте формат і спробуйте ще раз</i>", parse_mode="html")
 
 @dp.callback_query_handler(lambda c: c.data == "cancel_attack")
 async def cancel_attack(callback_query: types.CallbackQuery):
