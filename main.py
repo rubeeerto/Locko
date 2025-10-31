@@ -1434,7 +1434,7 @@ async def handle_phone_number(message: Message):
         # Перевірка лімітів: 30 атак/день + промо/реферальні
         can_attack, attacks_left, promo_attacks, referral_attacks = await check_attack_limits(user_id)
         if not can_attack:
-            await message.answer("❌ На сьогодні ліміт атак вичерпано. Спробуйте завтра або скористайтесь промокодом/рефералами.")
+            await message.answer("❌ На сьогодні ліміт атак вичерпано. Чекаємо на вас завтра або ви можете скористуватись промокодом чи рефералом.")
             return
         # Резервуємо атаку: списуємо з пріоритетом промо -> реферальні -> звичайні
         async with db_pool.acquire() as conn:
