@@ -54,6 +54,9 @@ giveaway_flags = {}
 proxies_all = []
 proxies_healthy = []
 proxies_last_check = None
+proxies_stats = []  # list of {entry, latency_ms}
+proxies_usage = {}  # key -> count
+proxies_usage_total = 0
 
 storage = MemoryStorage()
 bot = Bot(token=config.token)
@@ -218,8 +221,7 @@ admin_keyboard.add("Реферали")
 admin_keyboard.add("Створити промокод")
 admin_keyboard.add("Видалити промокод")
 admin_keyboard.add("Список промокодів")
-admin_keyboard.add("Проксі: перевірити")
-admin_keyboard.add("Проксі: статус")
+admin_keyboard.add("Перевірити проксі")
 admin_keyboard.add("Назад")
 
 def load_proxies_from_file(path: str = "proxy.txt"):
@@ -264,10 +266,11 @@ async def check_single_proxy(entry):
     return None
 
 async def check_and_update_proxies():
-    global proxies_all, proxies_healthy, proxies_last_check
+    global proxies_all, proxies_healthy, proxies_last_check, proxies_stats
     proxies_all = load_proxies_from_file()
     if not proxies_all:
         proxies_healthy = []
+        proxies_stats = []
         proxies_last_check = datetime.now()
         return {"total": 0, "healthy": 0}
     sem = asyncio.Semaphore(50)
@@ -278,6 +281,7 @@ async def check_and_update_proxies():
     results = await asyncio.gather(*tasks, return_exceptions=False)
     healthy = [r for r in results if r]
     proxies_healthy = [r["entry"] for r in healthy]
+    proxies_stats = healthy
     proxies_last_check = datetime.now()
     return {"total": len(proxies_all), "healthy": len(proxies_healthy)}
 
@@ -483,20 +487,21 @@ async def admin(message: Message):
     else:
         await message.answer('☝️Ви не адміністратор')
 
-@dp.message_handler(text="Проксі: перевірити")
-async def admin_check_proxies(message: Message):
+@dp.message_handler(text="Перевірити проксі")
+async def admin_check_and_report_proxies(message: Message):
     if message.from_user.id not in ADMIN:
         await message.answer("Недостатньо прав.")
         return
     stats = await check_and_update_proxies()
-    await message.answer(f"Перевірено: {stats['total']}\nРобочих: {stats['healthy']}")
-
-@dp.message_handler(text="Проксі: статус")
-async def admin_proxy_status(message: Message):
-    if message.from_user.id not in ADMIN:
-        await message.answer("Недостатньо прав.")
-        return
-    await message.answer(proxy_status_text())
+    lines = [f"Перевірено: {stats['total']}. Робочих: {stats['healthy']}.", ""]
+    total_usage = sum(proxies_usage.values()) or 1
+    for item in proxies_stats:
+        e = item["entry"]
+        key = f"{e['host']}:{e['port']}:{e['user']}"
+        cnt = proxies_usage.get(key, 0)
+        pct = round(cnt * 100.0 / total_usage, 1)
+        lines.append(f"• {e['host']}:{e['port']} ({e['user']}) — {int(item['latency_ms'])} ms — навантаження: {pct}%")
+    await message.answer("\n".join(lines))
 
 # ПРОМОКОДЫ - АДМИН ПАНЕЛЬ
 
@@ -1208,6 +1213,12 @@ async def ukr(number, chat_id, proxy_entries=None):
             return None, None
         try:
             entry = next(proxy_cycle)
+            # increment usage counters
+            try:
+                key = f"{entry['host']}:{entry['port']}:{entry.get('user','')}"
+                proxies_usage[key] = proxies_usage.get(key, 0) + 1
+            except Exception:
+                pass
             return build_proxy_params(entry)
         except Exception:
             return None, None
