@@ -1304,14 +1304,27 @@ async def ukr(number, chat_id, proxy_counter=None, shuffled_proxies_list=None):
         logging.debug(f"[ATTACK] Створено новий перемішаний список з {len(shuffled_proxies)} проксі")
     
     def pick_proxy():
-        """Повертає проксі через round-robin для рівномірного розподілу"""
+        """Повертає випадковий проксі з перемішаного списку для максимальної випадковості"""
         if not shuffled_proxies or not USE_PROXIES:
             return None, None
         try:
-            # Round-robin: використовуємо modulo для циклічного обходу
-            idx = _proxy_counter['value'] % len(shuffled_proxies)
-            _proxy_counter['value'] += 1
-            selected = shuffled_proxies[idx]
+            # Випадковий вибір з перемішаного списку (але всі проксі використаються рівномірно через перемішування)
+            # Використовуємо round-robin як базу, але додаємо випадковість
+            import random
+            if len(shuffled_proxies) > 1:
+                # Використовуємо round-robin з випадковим offset для більшої випадковості
+                base_idx = _proxy_counter['value'] % len(shuffled_proxies)
+                _proxy_counter['value'] += 1
+                # Додаємо невеликий випадковий зсув (0-2 позиції) для різноманітності
+                offset = random.randint(0, min(2, len(shuffled_proxies) - 1))
+                idx = (base_idx + offset) % len(shuffled_proxies)
+                selected = shuffled_proxies[idx]
+            elif len(shuffled_proxies) == 1:
+                idx = 0
+                selected = shuffled_proxies[0]
+                _proxy_counter['value'] += 1
+            else:
+                return None, None
             
             normalized = normalize_proxy_string(selected)
             url, auth = parse_proxy_for_aiohttp(normalized)
@@ -1357,18 +1370,18 @@ async def ukr(number, chat_id, proxy_counter=None, shuffled_proxies_list=None):
                 if not attack_flags.get(chat_id):
                     return
                 
-                # При retry пробуємо новий проксі (якщо є)
+                # При retry пробуємо випадковий новий проксі (якщо є)
                 if attempt > 0 and shuffled_proxies and USE_PROXIES:
                     try:
-                        # Беремо наступний проксі для retry
-                        retry_idx = (_proxy_counter['value'] + attempt - 1) % len(shuffled_proxies)
-                        retry_proxy = shuffled_proxies[retry_idx]
+                        import random
+                        # Вибираємо абсолютно випадковий проксі для retry
+                        retry_proxy = random.choice(shuffled_proxies)
                         normalized = normalize_proxy_string(retry_proxy)
                         new_proxy, new_auth = parse_proxy_for_aiohttp(normalized)
                         if new_proxy:
                             kwargs['proxy'] = new_proxy
                             kwargs['proxy_auth'] = new_auth
-                            logging.debug(f"[ATTACK] Retry {attempt} for {url} with new proxy")
+                            logging.debug(f"[ATTACK] Retry {attempt} for {url} with random proxy")
                         else:
                             kwargs['proxy'] = original_proxy
                             kwargs['proxy_auth'] = original_auth
@@ -1512,8 +1525,10 @@ async def ukr(number, chat_id, proxy_counter=None, shuffled_proxies_list=None):
     if not attack_flags.get(chat_id):
         return
     
-    # Рандомізуємо порядок сервісів для меншого патерну
+    # Рандомізуємо порядок сервісів на кожному етапі для максимальної випадковості
+    import random
     random.shuffle(tasks)
+    logging.debug(f"[ATTACK] Перемішано {len(tasks)} сервісів")
     
     # Виконуємо паралельно (gather) для кращої продуктивності
     # з каскадною логікою: спочатку швидкі, потім повільніші
@@ -1534,18 +1549,15 @@ async def start_attack(number, chat_id, status_message_id: int = None):
     
     # Отримуємо список проксі один раз для всіх етапів
     global_proxy_counter = {'value': 0}
-    global_shuffled_proxies = []
+    global_proxies_pool = []  # Пул всіх доступних проксі
     
     if USE_PROXIES:
         try:
-            proxies = await get_available_proxies(min_success_rate=0, use_cache=False)
-            import random
-            global_shuffled_proxies = proxies.copy()
-            random.shuffle(global_shuffled_proxies)
-            logging.info(f"[ATTACK] Ініціалізовано {len(global_shuffled_proxies)} проксі для всіх {MAX_STAGES} етапів")
+            global_proxies_pool = await get_available_proxies(min_success_rate=0, use_cache=False)
+            logging.info(f"[ATTACK] Завантажено {len(global_proxies_pool)} проксі для використання")
         except Exception as e:
             logging.error(f"[ATTACK] Помилка отримання проксі: {e}")
-            global_shuffled_proxies = []
+            global_proxies_pool = []
 
     async def update_status(text: str):
         """Оновлює статус повідомлення замість створення нового"""
@@ -1583,11 +1595,17 @@ async def start_attack(number, chat_id, status_message_id: int = None):
             logging.info(f"[ATTACK] Етап {stage_num}/{MAX_STAGES} для {number}")
             await update_status(f'🎯 Місія в процесі\n\n📱 Ціль: <i>{number}</i>\n\n⚡ Етап: {stage_num}/{MAX_STAGES}')
             
+            # Перемішуємо проксі на кожному етапі для максимізації випадковості
+            import random
+            shuffled_proxies_for_stage = global_proxies_pool.copy()
+            random.shuffle(shuffled_proxies_for_stage)
+            logging.info(f"[ATTACK] Етап {stage_num}: перемішано {len(shuffled_proxies_for_stage)} проксі")
+            
             try:
                 # Виконуємо один етап атаки (прохід по всіх сервісах)
-                # Передаємо лічильник та список проксі для продовження round-robin між етапами
-                await ukr(number, chat_id, global_proxy_counter, global_shuffled_proxies)
-                logging.info(f"[ATTACK] Етап {stage_num} завершено. Використано проксі до індексу {global_proxy_counter['value']}")
+                # Скидаємо лічильник для кожного етапу, але перемішуємо проксі заново
+                await ukr(number, chat_id, None, shuffled_proxies_for_stage)
+                logging.info(f"[ATTACK] Етап {stage_num} завершено")
             except Exception as e:
                 logging.error(f"Помилка в етапі атаки (продовжуємо): {e}")
             
