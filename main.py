@@ -663,13 +663,28 @@ async def proxy_check_menu(message: Message):
     if not rows:
         await message.answer('Проксі не додані.')
         return
-    lines = ["📡 Перевірка проксі:"]
-    for r in rows:
-        total = r['success_count'] + r['fail_count']
-        rate = (r['success_count'] * 100 // total) if total > 0 else 0
-        last = r['last_check'].strftime('%d.%m.%Y %H:%M') if r['last_check'] else '—'
-        lines.append(f"• {r['proxy_url']}\n  ├ Стабільність: {rate}%\n  ├ Затримка: {r['avg_latency_ms']} мс\n  └ Остання перевірка: {last}")
-    await message.answer('\n'.join(lines))
+    
+    # Розділяємо на частини (максимум 10 проксі на повідомлення)
+    PROXIES_PER_MESSAGE = 10
+    total_count = len(rows)
+    
+    for i in range(0, len(rows), PROXIES_PER_MESSAGE):
+        chunk = rows[i:i + PROXIES_PER_MESSAGE]
+        part_num = (i // PROXIES_PER_MESSAGE) + 1
+        total_parts = (len(rows) + PROXIES_PER_MESSAGE - 1) // PROXIES_PER_MESSAGE
+        
+        lines = [f"📡 Перевірка проксі (частина {part_num}/{total_parts}, всього: {total_count}):\n"]
+        for r in chunk:
+            total = r['success_count'] + r['fail_count']
+            rate = (r['success_count'] * 100 // total) if total > 0 else 0
+            last = r['last_check'].strftime('%d.%m.%Y %H:%M') if r['last_check'] else '—'
+            # Скорочений формат для економії місця
+            lines.append(f"• {mask_proxy_for_log(r['proxy_url'])}\n  ├ {rate}% | {r['avg_latency_ms']}мс | {last}")
+        
+        await message.answer('\n'.join(lines))
+        # Невелика пауза між повідомленнями
+        if i + PROXIES_PER_MESSAGE < len(rows):
+            await asyncio.sleep(0.3)
 
 @dp.message_handler(text="Увімкнути/вимкнути проксі")
 async def toggle_proxies(message: Message):
