@@ -1073,8 +1073,8 @@ async def referral_program(message: types.Message):
     message_text = f"🎪 <b>Запросити друга</b>\n\n"
     message_text += f"🔗 Ваше посилання:\n<code>{referral_link}</code>\n\n"
     message_text += "💰 <b>Що ти отримуєш?</b>\n"
-    message_text += "✅ Ти (чел1) отримуєш <b>+10 атак на один день</b>\n"
-    message_text += "✅ Твій друг (чел2) також отримує <b>+10 атак на один день</b>\n\n"
+    message_text += "✅ Ти отримуєш <b>+10 атак на один день</b>\n"
+    message_text += "✅ Твій друг також отримує <b>+10 атак на один день</b>\n\n"
     message_text += "📋 <b>Як це працює?</b>\n"
     message_text += "1️⃣ Скопіюй посилання вище\n"
     message_text += "2️⃣ Відправ другу у Telegram\n"
@@ -1830,25 +1830,25 @@ async def process_referral(referrer_id, user_id, username, name):
             'INSERT INTO referrals (referrer_id, referred_id) VALUES ($1, $2) ON CONFLICT (referred_id) DO NOTHING',
             referrer_id, user_id
         )
-        # Додаємо +10 атак запросившому (чел1)
+        # Додаємо +10 атак запросившому
         await conn.execute(
             'UPDATE users SET referral_attacks = referral_attacks + 10, referral_count = referral_count + 1 WHERE user_id = $1',
             referrer_id
         )
-        # Додаємо +10 атак запрошеному (чел2)
+        # Додаємо +10 атак запрошеному
         await conn.execute(
             'UPDATE users SET referral_attacks = referral_attacks + 10 WHERE user_id = $1',
             user_id
         )
         try:
             ref_name = username or name or f"User{user_id}"
-            # Повідомлення запросившому (чел1)
+            # Повідомлення запросившому
             await bot.send_message(
                 referrer_id,
                 f"🎉 За вашим посиланням приєднався новий користувач: <a href='tg://user?id={user_id}'>{ref_name}</a>\n🚀 Ви отримали +10 додаткових атак на сьогодні!",
                 parse_mode='HTML'
             )
-            # Повідомлення запрошеному (чел2)
+            # Повідомлення запрошеному
             referrer_name_result = await conn.fetchrow('SELECT name, username FROM users WHERE user_id = $1', referrer_id)
             if referrer_name_result:
                 referrer_name = referrer_name_result['username'] or referrer_name_result['name'] or f"User{referrer_id}"
