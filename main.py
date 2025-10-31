@@ -1264,8 +1264,10 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
         try:
             if not attack_flags.get(chat_id):
                 return
-                
-            timeout = aiohttp.ClientTimeout(total=5)
+            
+            # Для smaki-maki використовуємо більший таймаут (15 секунд)
+            timeout_seconds = 15 if 'smaki-maki.com' in url else 5
+            timeout = aiohttp.ClientTimeout(total=timeout_seconds)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 method = kwargs.pop('method', 'POST')
                 # sanitize encodings to avoid brotli dependency
