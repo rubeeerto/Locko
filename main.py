@@ -707,12 +707,23 @@ async def promo_handler(message: types.Message):
         return
     
     await Dialog.enter_promo.set()
-    await message.answer("🎁 Введіть промокод:")
+    await message.answer("🎁 Введіть промокод:\n\n💡 Промокод складається тільки з букв та цифр. Номер телефону не є промокодом.")
 
 @dp.message_handler(state=Dialog.enter_promo)
 async def process_promo(message: Message, state: FSMContext):
     user_id = message.from_user.id
-    promo_code = message.text.strip().upper()
+    text = message.text.strip()
+    
+    # Перевіряємо, чи це не номер телефону (якщо містить багато цифр і схоже на номер)
+    number_test = re.sub(r'\D', '', text)
+    if len(number_test) >= 9:  # Якщо 9+ цифр - це скоріше номер телефону
+        # Скидаємо стан і викликаємо обробник номерів
+        await state.finish()
+        # Викликаємо обробник номерів напряму
+        await handle_phone_number(message, state)
+        return
+    
+    promo_code = text.upper()
     
     async with db_pool.acquire() as conn:
         # Перевіряємо існування та активність промокоду
@@ -1413,10 +1424,16 @@ async def start_attack(number, chat_id):
 
 @dp.message_handler(lambda message: message.text and not message.text.startswith('/start'), content_types=['text'])
 @dp.throttled(anti_flood, rate=3)
-async def handle_phone_number(message: Message):
+async def handle_phone_number(message: Message, state: FSMContext = None):
     # Перевіряємо, що повідомлення з особистого чату
     if message.chat.type != 'private':
         return  # Ігноруємо повідомлення з груп
+    
+    # Якщо користувач в стані FSM - не обробляємо номер (даємо обробити іншим обробникам)
+    if state:
+        current_state = await state.get_state()
+        if current_state:
+            return
     
     # Ігноруємо текст кнопок
     button_texts = ['🆘 Допомога', '🎪 Запросити друга', '🎯 Почати атаку', '❓ Перевірити атаки', '🎁 У мене є промокод']
