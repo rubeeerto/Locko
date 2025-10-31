@@ -61,15 +61,21 @@ def get_kyiv_date():
 
 # Функція для отримання поточного datetime за київським часом
 def get_kyiv_datetime():
-    """Повертає поточний datetime за київським часом"""
+    """Повертає поточний datetime за київським часом (offset-naive для бази даних)"""
     if ZoneInfo:
         # Python 3.9+
         kyiv_tz = ZoneInfo("Europe/Kyiv")
-        return datetime.now(kyiv_tz)
+        kyiv_now = datetime.now(kyiv_tz)
+        # Конвертуємо в UTC і прибираємо часовий пояс для бази даних
+        return kyiv_now.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
     elif pytz:
         # Python < 3.9 з pytz
         kyiv_tz = pytz.timezone("Europe/Kyiv")
-        return datetime.now(kyiv_tz)
+        utc_tz = pytz.UTC
+        kyiv_now = datetime.now(kyiv_tz)
+        # Конвертуємо в UTC і прибираємо часовий пояс для бази даних
+        utc_now = kyiv_now.astimezone(utc_tz)
+        return utc_now.replace(tzinfo=None)
     else:
         # Fallback - використовуємо системний час
         return datetime.now()
