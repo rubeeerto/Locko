@@ -33,7 +33,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 ADMIN = [810944378]
 channel_id = "-1003203193556"
-message = ("Привіт.\nВаш вибір: ")
+
 message = ("Привіт.\nВаш вибір: 👇")
 
 db_config = {
