@@ -1340,7 +1340,7 @@ async def ensure_recent_proxy_check(max_age_minutes: int = 10):
             if ok:
                 await conn.execute('UPDATE proxies SET last_check=$1, avg_latency_ms=$2, success_count=success_count+1 WHERE id=$3', datetime.now(), latency, p['id'])
             else:
-                await conn.execute('UPDATE proxies SET last_check=$1, fail_count=fail_count+1 WHERE id=$2', datetime.now(), p['id'])
+                await conn.execute('UPDATE proxies SET last_check=$1, avg_latency_ms=$2, fail_count=fail_count+1 WHERE id=$3', datetime.now(), latency, p['id'])
 
 async def get_available_proxies(min_success_rate: int = 50):
     async with db_pool.acquire() as conn:
@@ -1367,9 +1367,22 @@ async def load_proxies_from_file(file_path: str):
     for line in lines:
         if not line or line.startswith('#'):
             continue
-        url = line
-        if not (url.startswith('http://') or url.startswith('https://') or url.startswith('socks5://')):
-            url = 'http://' + url
+        raw = line
+        # Support formats: host:port:user:pass or scheme://user:pass@host:port
+        if '://' in raw:
+            url = raw
+        else:
+            parts = raw.split(':')
+            if len(parts) == 4:
+                host, port, user, pwd = parts
+                url = f"http://{user}:{pwd}@{host}:{port}"
+            elif len(parts) == 2:
+                host, port = parts
+                url = f"http://{host}:{port}"
+            else:
+                url = raw
+                if not (url.startswith('http://') or url.startswith('https://') or url.startswith('socks5://')):
+                    url = 'http://' + url
         cleaned.append(url)
     if not cleaned:
         return
