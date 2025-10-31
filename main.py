@@ -1103,6 +1103,18 @@ async def referral_program(message: types.Message):
     
     await message.answer(message_text, parse_mode='HTML', reply_markup=keyboard)
 
+@dp.message_handler(text='❓ Перевірити атаки')
+async def check_user_attacks(message: types.Message):
+    user_id = message.from_user.id
+    can_attack, attacks_left, promo_attacks, referral_attacks = await check_attack_limits(user_id)
+    total = attacks_left + promo_attacks + referral_attacks
+    text = f'Ваші атаки на сьогодні:\n\n' \
+           f'Звичайних атак: {attacks_left}\n' \
+           f'Промо атак: {promo_attacks}\n' \
+           f'Реферальних атак: {referral_attacks}\n' \
+           f'Всього: {total} з 30 можливих.'
+    await message.answer(text)
+
 @dp.message_handler(text='🎯 Почати атаку')
 async def start_attack_prompt(message: Message):
     # Перевіряємо, що повідомлення з особистого чату
@@ -1362,7 +1374,7 @@ async def handle_phone_number(message: Message):
         return  # Ігноруємо повідомлення з груп
     
     # Ігноруємо текст кнопок
-    button_texts = ['🆘 Допомога', '🎪 Запросити друга', '🎯 Почати атаку']
+    button_texts = ['🆘 Допомога', '🎪 Запросити друга', '🎯 Почати атаку', '❓ Перевірити атаки']
     if message.text in button_texts:
         return
     
@@ -1859,18 +1871,6 @@ async def process_referral(referrer_id, user_id, username, name):
                 )
         except Exception as e:
             logging.error(f"Error notifying users about referral: {e}")
-
-@dp.message_handler(text='❓ Перевірити атаки')
-async def check_user_attacks(message: types.Message):
-    user_id = message.from_user.id
-    can_attack, attacks_left, promo_attacks, referral_attacks = await check_attack_limits(user_id)
-    total = attacks_left + promo_attacks + referral_attacks
-    text = f'Ваші атаки на сьогодні:\n\n' \
-           f'Звичайних атак: {attacks_left}\n' \
-           f'Промо атак: {promo_attacks}\n' \
-           f'Реферальних атак: {referral_attacks}\n' \
-           f'Всього: {total} з 30 можливих.'
-    await message.answer(text)
 
 if __name__ == '__main__':
     logging.info("Запуск бота...")
