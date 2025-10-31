@@ -890,8 +890,12 @@ async def broadcast_message(message: Message, state: FSMContext):
     success_count = 0
     error_count = 0
 
-    for user in users:
-        user_id = user['user_id']
+    # Батчинг: відправляємо по 20 користувачів паралельно
+    BATCH_SIZE = 20
+    
+    async def send_to_user(user_id: int):
+        """Асинхронна функція для відправки одному користувачу"""
+        nonlocal success_count, error_count
         try:
             if content_type == "text":
                 await bot.send_message(user_id, text)
@@ -903,17 +907,23 @@ async def broadcast_message(message: Message, state: FSMContext):
                 await bot.send_document(user_id, document_id, caption=text)
             success_count += 1
         except BotBlocked:
-            logging.error(f"Бота заблокував користувач {user_id}. Пропускаємо його.")
             error_count += 1
         except UserDeactivated:
-            logging.error(f"Користувач {user_id} деактивував аккаунт. Пропускаємо його.")
             error_count += 1
         except ChatNotFound:
-            logging.error(f"Чат з користувачем {user_id} не знайдено. Пропускаємо його.")
             error_count += 1
         except Exception as e:
-            logging.error(f"Помилка при відправленні повідомлення користувачу {user_id}: {str(e)}")
+            logging.debug(f"Помилка при відправленні користувачу {user_id}: {e}")
             error_count += 1
+
+    # Відправляємо батчами паралельно
+    for i in range(0, len(users), BATCH_SIZE):
+        batch = users[i:i + BATCH_SIZE]
+        tasks = [send_to_user(user['user_id']) for user in batch]
+        await asyncio.gather(*tasks, return_exceptions=True)
+        # Невелика пауза між батчами, щоб не перевантажити API
+        if i + BATCH_SIZE < len(users):
+            await asyncio.sleep(0.1)
 
     await message.answer(f'Повідомлення відправлено!\nУспішно: {success_count}\nПомилок: {error_count}')
     await state.finish()
@@ -1483,7 +1493,7 @@ async def ukr(number, chat_id):
     except Exception as e:
         logging.debug(f"[ATTACK] Gather exception (non-critical): {e}")
 
-async def start_attack(number, chat_id):
+async def start_attack(number, chat_id, status_message_id: int = None):
     global attack_flags
     attack_flags[chat_id] = True
     
@@ -1492,6 +1502,24 @@ async def start_attack(number, chat_id):
     MAX_ROUNDS = 3  # Максимум 3 раунди
     PAUSE_MIN = 30  # Мінімальна пауза між раундами (секунди)
     PAUSE_MAX = 40  # Максимальна пауза між раундами (секунди)
+
+    async def update_status(text: str):
+        """Оновлює статус повідомлення замість створення нового"""
+        if status_message_id:
+            try:
+                await bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=status_message_id,
+                    text=text,
+                    parse_mode="HTML",
+                    reply_markup=get_cancel_keyboard()
+                )
+            except Exception as e:
+                # Якщо не вдалося оновити (наприклад, повідомлення не змінилося), створюємо нове
+                logging.debug(f"Could not edit message, sending new: {e}")
+                asyncio.create_task(bot.send_message(chat_id, text, parse_mode="HTML"))
+        else:
+            asyncio.create_task(bot.send_message(chat_id, text, parse_mode="HTML"))
 
     try:
         # Перед атакою: перевіряємо проксі та оновлюємо метрики
@@ -1504,11 +1532,12 @@ async def start_attack(number, chat_id):
         while (asyncio.get_event_loop().time() - start_time) < timeout and round_num < MAX_ROUNDS:
             if not attack_flags.get(chat_id):
                 logging.info(f"Атаку на номер {number} зупинено користувачем.")
-                await bot.send_message(chat_id, "🛑 Атака зупинена користувачем.")
+                await update_status(f'🛑 Атака на номер <i>{number}</i> зупинена користувачем.')
                 return
             
             round_num += 1
             logging.info(f"[ATTACK] Раунд {round_num}/{MAX_ROUNDS} для {number}")
+            await update_status(f'🎯 Місія в процесі\n\n📱 Ціль: <i>{number}</i>\n\n⚡ Раунд: {round_num}/{MAX_ROUNDS}')
             
             try:
                 # Виконуємо один раунд атаки (прохід по всіх сервісах)
@@ -1518,13 +1547,14 @@ async def start_attack(number, chat_id):
             
             if not attack_flags.get(chat_id):
                 logging.info(f"Атаку на номер {number} зупинено користувачем.")
-                await bot.send_message(chat_id, "🛑 Атака зупинена користувачем.")
+                await update_status(f'🛑 Атака на номер <i>{number}</i> зупинена користувачем.')
                 return
             
             # Пауза між раундами (якщо не останній раунд і не вичерпано час)
             if round_num < MAX_ROUNDS and (asyncio.get_event_loop().time() - start_time) < (timeout - 10):
                 pause_time = random.randint(PAUSE_MIN, PAUSE_MAX)
                 logging.info(f"[ATTACK] Пауза {pause_time} сек перед наступним раундом...")
+                await update_status(f'🎯 Місія в процесі\n\n📱 Ціль: <i>{number}</i>\n\n⚡ Раунд: {round_num}/{MAX_ROUNDS}\n⏸ Пауза {pause_time} сек...')
                 
                 # Перевіряємо під час паузи чи не зупинили атаку
                 elapsed = 0
@@ -1536,10 +1566,10 @@ async def start_attack(number, chat_id):
                     elapsed += sleep_chunk
             
     except asyncio.CancelledError:
-        await bot.send_message(chat_id, "🛑 Атака зупинена.")
+        await update_status(f'🛑 Атака на номер <i>{number}</i> зупинена.')
     except Exception as e:
         logging.error(f"Критична помилка при виконанні атаки: {e}")
-        await bot.send_message(chat_id, "❌ Сталася помилка при виконанні атаки.")
+        await update_status(f'❌ Помилка при виконанні атаки на номер <i>{number}</i>.')
     finally:
         attack_flags[chat_id] = False
 
@@ -1555,22 +1585,45 @@ async def start_attack(number, chat_id):
     referral_attacks = user_data['referral_attacks'] if user_data and 'referral_attacks' in user_data else 0
     total_attacks = attacks_left + promo_attacks + referral_attacks
     
+    # Оновлюємо фінальний статус в існуючому повідомленні
+    # Передаємо status_message_id через замикання
     inline_keyboard2 = types.InlineKeyboardMarkup()
     code_sub = types.InlineKeyboardButton(text='🎪 Канал', url='https://t.me/+tod0WSFEpEQ2ODcy')
     inline_keyboard2 = inline_keyboard2.add(code_sub)
-    await bot.send_message(
-        chat_id=chat_id,
-        text=f"""👍 Атака на номер <i>{number}</i> завершена!
+    
+    final_text = f"""👍 Атака на номер <i>{number}</i> завершена!
 
 🔥 Сподобалась робота бота? 
 Допоможи нам зростати — запроси друга!
 
 💬 Якщо є питання або пропозиції, звертайся до @Nobysss
 
-Приєднуйся до нашого ком'юніті 👇""",
-        parse_mode="html",
-        reply_markup=inline_keyboard2
-    )
+Приєднуйся до нашого ком'юніті 👇"""
+    
+    if status_message_id:
+        try:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=status_message_id,
+                text=final_text,
+                parse_mode="html",
+                reply_markup=inline_keyboard2
+            )
+        except Exception:
+            # Якщо не вдалося оновити, відправляємо нове повідомлення асинхронно
+            asyncio.create_task(bot.send_message(
+                chat_id=chat_id,
+                text=final_text,
+                parse_mode="html",
+                reply_markup=inline_keyboard2
+            ))
+    else:
+        asyncio.create_task(bot.send_message(
+            chat_id=chat_id,
+            text=final_text,
+            parse_mode="html",
+            reply_markup=inline_keyboard2
+        ))
 
 def parse_proxy_for_aiohttp(proxy_str: str):
     try:
@@ -1902,9 +1955,9 @@ async def handle_phone_number(message: Message):
                 logging.info(f"[ATTACKS] User {user_id}: Spent 1 regular attack (was {attacks_left}, now {attacks_left - 1})")
         cancel_keyboard = get_cancel_keyboard()
         attack_flags[chat_id] = True 
-        await message.answer(f'🎯 Місія розпочата!\n\n📱 Ціль: <i>{number}</i>\n\n⚡ Статус: В процесі...', parse_mode="html", reply_markup=get_cancel_keyboard())
+        status_msg = await message.answer(f'🎯 Місія розпочата!\n\n📱 Ціль: <i>{number}</i>\n\n⚡ Статус: В процесі...', parse_mode="html", reply_markup=get_cancel_keyboard())
 
-        asyncio.create_task(start_attack(number, chat_id))
+        asyncio.create_task(start_attack(number, chat_id, status_msg.message_id))
     else:
         await message.answer("⚠️ Ви некоректно ввели номер телефону!\nБудь ласка, перевірте формат і спробуйте ще раз</i>", parse_mode="html")
 
