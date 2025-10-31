@@ -210,7 +210,8 @@ profile_button = types.KeyboardButton('🎯 Почати атаку')
 referal_button = types.KeyboardButton('🆘 Допомога')
 referral_program_button = types.KeyboardButton('🎪 Запросити друга')
 check_attacks_button = types.KeyboardButton('❓ Перевірити атаки')
-profile_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True).add(profile_button, referal_button).add(referral_program_button, check_attacks_button)
+promo_button = types.KeyboardButton('🎁 У мене є промокод')
+profile_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True).add(profile_button, referal_button).add(referral_program_button, check_attacks_button).add(promo_button)
 
 admin_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
 admin_keyboard.add("Надіслати повідомлення користувачам")
@@ -641,7 +642,8 @@ async def list_promos(message: Message):
 
 # ПРОМОКОДЫ - ПОЛЬЗОВАТЕЛИ
 
-@dp.message_handler(text='Промокод 🎁')
+@dp.message_handler(text='🎁 У мене є промокод')
+@dp.throttled(anti_flood, rate=3)
 async def promo_handler(message: types.Message):
     # Перевіряємо, що повідомлення з особистого чату
     if message.chat.type != 'private':
@@ -1377,7 +1379,7 @@ async def handle_phone_number(message: Message):
         return  # Ігноруємо повідомлення з груп
     
     # Ігноруємо текст кнопок
-    button_texts = ['🆘 Допомога', '🎪 Запросити друга', '🎯 Почати атаку', '❓ Перевірити атаки']
+    button_texts = ['🆘 Допомога', '🎪 Запросити друга', '🎯 Почати атаку', '❓ Перевірити атаки', '🎁 У мене є промокод']
     if message.text in button_texts:
         return
     
