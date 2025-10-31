@@ -1709,6 +1709,48 @@ async def process_referral(referrer_id, user_id, username, name):
         except Exception as e:
             logging.error(f"Error notifying referrer {referrer_id}: {e}")
 
+USER_STATS_ALLOWED = [7734239628, 810944378]
+
+@dp.message_handler(commands=['stats'])
+async def user_stats(message: Message):
+    if message.from_user.id in USER_STATS_ALLOWED:
+        async with db_pool.acquire() as conn:
+            total_users = await conn.fetchval('SELECT COUNT(*) FROM users')
+            active_users = 0
+            users = await conn.fetch('SELECT user_id FROM users')
+            for user in users:
+                try:
+                    await bot.send_chat_action(user['user_id'], 'typing')
+                    active_users += 1
+                except (BotBlocked, UserDeactivated, ChatNotFound):
+                    continue
+                except Exception as e:
+                    logging.error(f"Помилка при перевірці користувача {user['user_id']}: {e}")
+                    continue
+            blocked_users = await conn.fetchval('SELECT COUNT(*) FROM users WHERE block = 1')
+            users_with_referrals = await conn.fetchval('SELECT COUNT(*) FROM users WHERE referral_count > 0')
+            total_referrals = await conn.fetchval('SELECT COUNT(*) FROM referrals')
+            vip_users = await conn.fetchval('SELECT COUNT(*) FROM users WHERE referral_count >= 20')
+            total_promos = await conn.fetchval('SELECT COUNT(*) FROM promocodes')
+            active_promos = await conn.fetchval('SELECT COUNT(*) FROM promocodes WHERE is_active = TRUE AND valid_until > $1', datetime.now())
+            promo_activations = await conn.fetchval('SELECT COUNT(*) FROM promo_activations')
+        message_text = (
+            f"📊 <b>Статистика бота</b>\n\n"
+            f"👥 Всього користувачів: {total_users}\n"
+            f"✅ Активних користувачів: {active_users}\n"
+            f"🚫 Заблокованих користувачів: {blocked_users}\n"
+            f"📈 Користувачів з рефералами: {users_with_referrals}\n"
+            f"🔗 Всього рефералів: {total_referrals}\n"
+            f"⭐ VIP користувачів (20+ рефералів): {vip_users}\n\n"
+            f"🎁 <b>Промокоди:</b>\n"
+            f"📋 Всього створено: {total_promos}\n"
+            f"🟢 Активних: {active_promos}\n"
+            f"✨ Активацій: {promo_activations}"
+        )
+        await message.answer(message_text, parse_mode="HTML")
+    else:
+        await message.answer("Недостатньо прав.")
+
 if __name__ == '__main__':
     logging.info("Запуск бота...")
     loop = asyncio.get_event_loop()
