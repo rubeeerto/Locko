@@ -868,6 +868,7 @@ async def broadcast_message(message: Message, state: FSMContext):
         except Exception as e:
             logging.error(f"Помилка при відправленні повідомлення користувачу {user_id}: {str(e)}")
             error_count += 1
+        await asyncio.sleep(random.uniform(0.4, 1.1)) # <= Додаєм паузу
 
     await message.answer(f'Повідомлення відправлено!\nУспішно: {success_count}\nПомилок: {error_count}')
     await state.finish()
@@ -1285,6 +1286,7 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
         if not attack_flags.get(chat_id):
             return
         await task
+        await asyncio.sleep(random.uniform(0.12, 0.4)) # <= мягкая задержка
 
 async def start_attack(number, chat_id):
     global attack_flags
@@ -1334,8 +1336,7 @@ async def start_attack(number, chat_id):
                 logging.info(f"Атаку на номер {number} зупинено користувачем.")
                 await bot.send_message(chat_id, "🛑 Атака зупинена користувачем.")
                 return
-                
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(random.uniform(0.3, 1.0)) # <= Здесь теперь случайная задержка,
             
     except asyncio.CancelledError:
         try:
