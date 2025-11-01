@@ -427,3 +427,30 @@ headers_ta_da = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0",
     "user-language": "ua",
 }
+
+cookies_monto = {
+    "_gcl_au": "1.1.2068029715.1762036965",
+    "_ga_EMFPJGRJT1": "GS2.1.s1762036964$o1$g1$t1762036986$j38$l0$h0",
+    "_ga": "GA1.1.1782108900.1762036965",
+    "device-source": "https://monto.com.ua/login?utm_source=CPC_Monsters&utm_medium=cpa_aff&utm_campaign=MT_CPC_InUA_ads&clickid=69068ce27917c50001f04ea2&pid=21&affiliate_name=CPC_Monsters",
+    "device-referrer": "https://www.google.com/",
+    "access_token": "web5ec6a746-8885-48ab-af26-797f74004bb9",
+}
+
+headers_monto = {
+    "Accept": "*/*",
+    "Accept-Encoding": "gzip, deflate, br, zstd",
+    "Accept-Language": "ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3",
+    "Connection": "keep-alive",
+    "Content-Type": "application/json",
+    "Cookie": "_gcl_au=1.1.2068029715.1762036965; _ga_EMFPJGRJT1=GS2.1.s1762036964$o1$g1$t1762036986$j38$l0$h0; _ga=GA1.1.1782108900.1762036965; device-source=https://monto.com.ua/login?utm_source=CPC_Monsters&utm_medium=cpa_aff&utm_campaign=MT_CPC_InUA_ads&clickid=69068ce27917c50001f04ea2&pid=21&affiliate_name=CPC_Monsters; device-referrer=https://www.google.com/; access_token=web5ec6a746-8885-48ab-af26-797f74004bb9",
+    "Host": "mobilebanking.monto.com.ua",
+    "language": "ua",
+    "Origin": "https://monto.com.ua",
+    "Referer": "https://monto.com.ua/",
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-site",
+    "TE": "trailers",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0",
+}
