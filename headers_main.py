@@ -389,29 +389,3 @@ cookies_elmir_call = {
     "helpcrunch.com-elmir-2-token-data": '{"access_token":"Re4MI2IXFY6DPpX8293AyAA3oxf9uzwpx19t5+goqxEn19+1JfsptDQICwapV6m//ECV3FdLRkBVBuBcbwD98mdVtIjvlCqhGiJW0MrjJqriJgukCmw1TxtmnjeMIMx/9IQ1cdHx1foh6uHlSoC8/sTlBFDbxkdJWZMiouscvI+vumIf3w2v1pSM+0GeAzB2EtrkDYdXwKIdZqYPkK26/FzfdBtqv4IHT9VlaTFVuqkO/79DPob0Sw2+p1YEklJxoI1dhRaiWKaIUdpkRHvUltekUG2MURweCKFSW+7dLr3COU7Kb2zWqSbJz8VCODB1QsxU4vMb7XR3UDBTQy7wG+i5/J2i7LvwOvIcbRhmiCHZJ13GcZotjGswEvlKCDhkrpye2dN3xc6Pd/ZW/Xa+P9NHlrDNYcy2MmFdXX1HzA/srWI0Ip0mzo/oZaIq63YW3UM0koIrtt3ST69Mg+Euq2PZIb67/B+CwYhxeYMwrPcFucJthMCOZrUB9HXosah4brhrPZ3yx+M0nDyG6sHvG1hNiCqh/hEGOYzmTYmFiJxnDOAR9rzKmGk1UDRva0fqFg6N4uL/PXhijA1Uqt6Xv7aAnDDSyLWRkQX88z+5raTZFDvuFDDFJ5CsMpyIyfZ+ifAh7vgkOHkoPq8Ti8MRxIGEGAkYqf7Qd4BjU+OLvY0kSpg/7LfJ7AF8BeFBWKWiXzhhAJKYTy9KK1eKqYtIf7bvjNvLIemvY35dGiib47t4czOmlUPeA8BDQrdWHNZbIkqpIE6WKUoNK2XgTzpS4n817cx3+/Iw4UNFXYVk4MTpx4oiGJzszxZshrwM","refresh_token":"+IJA7nfEP+y4M1759qdsN21qfhbDlhcLPVAMBociWKzDSa3n2wFhbaVSt1UD9JL2a6r2ESTesg1dFsQ6l9pB","expires_in":1737628923667}',
     "helpcrunch.com-elmir-2-user-id": "guest:1737627240.6482:200309940"
 }
-
-headers_smaki = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
-    "Accept": "application/json, text/javascript, */*; q=0.01",
-    "Accept-Encoding": "gzip, deflate, br, zstd",
-    "Accept-Language": "uk-UA,uk;q=0.8,en-US;q=0.5,en;q=0.3",
-    "Connection": "keep-alive",
-    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-    "Origin": "https://smaki-maki.com",
-    "Referer": "https://smaki-maki.com/",
-    "Sec-Fetch-Dest": "empty",
-    "Sec-Fetch-Mode": "cors",
-    "Sec-Fetch-Site": "same-origin",
-    "Sec-GPC": "1",
-    "X-Requested-With": "XMLHttpRequest"
-}
-
-cookies_smaki = {
-    "language": "uk-ua",
-    "currency": "UAH",
-    "telegram_popup_viewed": "1",
-    "_gcl_au": "1.1.958923737.1761947844",
-    "_ga": "GA1.1.895487289.1761947845",
-    "_ga_XNV2NCX4Y7": "GS2.1.s1761947844$o1$g1$t1761947968$j32$l0$h1576361548",
-    "_fbp": "fb.1.1761947845818.916985135313908211"
-}
