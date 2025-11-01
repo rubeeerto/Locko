@@ -407,3 +407,23 @@ headers_apteka24 = {
     "TE": "trailers",
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0",
 }
+
+headers_ta_da = {
+    "Accept": "*/*",
+    "Accept-Encoding": "gzip, deflate, br, zstd",
+    "Accept-Language": "ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3",
+    "authorization": "Key ac608843f0aa757e79c7541f5fd25193aa606364c3b6593bceec742541caa9d4",
+    "Connection": "keep-alive",
+    "Content-Type": "application/json",
+    "Host": "api.ta-da.net.ua",
+    "Origin": "https://ta-da.ua",
+    "platform": "Site",
+    "Priority": "u=0",
+    "Referer": "https://ta-da.ua/",
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "cross-site",
+    "TE": "trailers",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0",
+    "user-language": "ua",
+}
