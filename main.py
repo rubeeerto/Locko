@@ -1274,9 +1274,11 @@ async def referral_program(message: types.Message):
             message_text += f"• <a href='tg://user?id={ref['user_id']}'>{ref_name}</a> - {ref['join_date'].strftime('%d.%m.%Y')}\n"
     
     keyboard = InlineKeyboardMarkup()
+    # Форматуємо текст з посиланням - Telegram автоматично зробить посилання клікабельним
     share_text = f"Привіт! Приєднуйся до нашого боту! 📱 Завдяки тобі ми зможемо зростати та робити для тебе ще більше 🚀\n\n{referral_link}"
     encoded_text = urllib.parse.quote(share_text)
-    share_url = f"https://t.me/share/url?url={referral_link}&text={encoded_text}"
+    # Використовуємо тільки параметр text, без url - так Telegram зробить посилання в тексті клікабельним
+    share_url = f"https://t.me/share/url?text={encoded_text}"
     keyboard.add(InlineKeyboardButton("🎯 Поділитися посиланням", url=share_url))
     
     await message.answer(message_text, parse_mode='HTML', reply_markup=keyboard)
