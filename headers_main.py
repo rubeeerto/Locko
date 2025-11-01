@@ -391,12 +391,15 @@ cookies_elmir_call = {
 }
 
 headers_brabra = {
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept": "*/*",
     "Accept-Language": "uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
     "Connection": "keep-alive",
     "Host": "brabrabra.ua",
-    "Referer": "https://www.google.com/",
+    "Origin": "https://brabrabra.ua",
+    "Referer": "https://brabrabra.ua/",
     "User-Agent": "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:144.0) Gecko/20100101 Firefox/144.0",
+    "X-Requested-With": "XMLHttpRequest",
 }
 
 cookies_brabra = {
