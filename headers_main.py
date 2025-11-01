@@ -454,3 +454,34 @@ headers_monto = {
     "TE": "trailers",
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0",
 }
+
+cookies_smartmedical = {
+    "utm_str": "dXRtX3NvdXJjZTpnb29nbGV8fHV0bV9jYW1wYWlnbjpTTUNfYnJlbmQoSyl8fHV0bV90ZXJtOnNtYXJ0JTIwY2xpbmljfHx1dG1fbWVkaXVtOmJyYW5kfHw=",
+    "utm_uuid": "mhgvsqz1ed8qqryh51axkkiujq363w55",
+    "biatv-cookie": "{%22firstVisitAt%22:1762037776%2C%22visitsCount%22:1%2C%22currentVisitStartedAt%22:1762037776%2C%22currentVisitLandingPage%22:%22https://smartmedicalcenter.ua/?utm_source=google&utm_medium=brand&utm_campaign=SMC_brend(K)&utm_term=smart%2520clinic&gad_source=1&gad_campaignid=21217707311&gclid=EAIaIQobChMIzZGknIbSkAMVg2eRBR3mC…$g0$t1762037779$j60$l0$h0",
+    "_clck": "seum0s%5E2%5Eg0n%5E0%5E2131",
+    "_clsk": "1a9qr0g%5E1762037779799%5E1%5E1%5Ej.clarity.ms%2Fcollect",
+    "_fbp": "fb.1.1762037781981.558498529878458917",
+    "device-source": "https://smartmedicalcenter.ua/?utm_source=google&utm_medium=brand&utm_campaign=SMC_brend(K)&utm_term=smart%20clinic&gad_source=1&gad_campaignid=21217707311&gclid=EAIaIQobChMIzZGknIbSkAMVg2eRBR3mCAAYEAAYASAAEgI0HfD_BwE#appoint",
+    "device-referrer": "https://www.google.com/",
+    "_ga_T69EBXB5QF": "GS2.1.s1762037785$o1$g1$t1762037862$j60$l0$h0",
+}
+
+headers_smartmedical = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Encoding": "gzip, deflate, br, zstd",
+    "Accept-Language": "ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3",
+    "Connection": "keep-alive",
+    "Content-Type": "application/x-www-form-urlencoded",
+    "Cookie": "utm_str=dXRtX3NvdXJjZTpnb29nbGV8fHV0bV9jYW1wYWlnbjpTTUNfYnJlbmQoSyl8fHV0bV90ZXJtOnNtYXJ0JTIwY2xpbmljfHx1dG1fbWVkaXVtOmJyYW5kfHw=; utm_uuid=mhgvsqz1ed8qqryh51axkkiujq363w55; biatv-cookie={%22firstVisitAt%22:1762037776%2C%22visitsCount%22:1%2C%22currentVisitStartedAt%22:1762037776%2C%22currentVisitLandingPage%22:%22https://smartmedicalcenter.ua/?utm_source=google&utm_medium=brand&utm_campaign=SMC_brend(K)&utm_term=smart%2520clinic&gad_source=1&gad_campaignid=21217707311&gclid=EAIaIQobChMIzZGknIbSkAMVg2eRBR3mC…$g0$t1762037779$j60$l0$h0; _clck=seum0s%5E2%5Eg0n%5E0%5E2131; _clsk=1a9qr0g%5E1762037779799%5E1%5E1%5Ej.clarity.ms%2Fcollect; _fbp=fb.1.1762037781981.558498529878458917; device-source=https://smartmedicalcenter.ua/?utm_source=google&utm_medium=brand&utm_campaign=SMC_brend(K)&utm_term=smart%20clinic&gad_source=1&gad_campaignid=21217707311&gclid=EAIaIQobChMIzZGknIbSkAMVg2eRBR3mCAAYEAAYASAAEgI0HfD_BwE#appoint; device-referrer=https://www.google.com/; _ga_T69EBXB5QF=GS2.1.s1762037785$o1$g1$t1762037862$j60$l0$h0",
+    "Host": "smartmedicalcenter.ua",
+    "Origin": "https://smartmedicalcenter.ua",
+    "Priority": "u=0, i",
+    "Referer": "https://smartmedicalcenter.ua/health/login/",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0",
+}

