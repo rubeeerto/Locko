@@ -1784,12 +1784,42 @@ async def handle_phone_number(message: Message, state: FSMContext = None):
             await message.answer(f"Номер <i>{number}</i> захищений від атаки.", parse_mode="html")
             return
 
-        # Бот безлімітний - оновлюємо тільки дату останньої атаки
+        # Перевіряємо та зменшуємо атаки
         async with db_pool.acquire() as conn:
-            await conn.execute(
-                'UPDATE users SET last_attack_date = $1 WHERE user_id = $2',
-                get_kyiv_datetime(), user_id
+            user_data = await conn.fetchrow(
+                'SELECT attacks_left, promo_attacks, referral_attacks FROM users WHERE user_id = $1',
+                user_id
             )
+            
+            if not user_data:
+                await message.answer("Помилка: Не вдалося знайти користувача.")
+                return
+            
+            attacks_left = user_data['attacks_left'] or 0
+            promo_attacks = user_data['promo_attacks'] or 0
+            referral_attacks = user_data['referral_attacks'] or 0
+            total_attacks = attacks_left + promo_attacks + referral_attacks
+            
+            if total_attacks <= 0:
+                await message.answer("❌ У вас немає доступних атак. Перевірте ваші атаки командою ❓ Перевірити атаки")
+                return
+            
+            # Зменшуємо атаки: спочатку реферальні, потім промо, потім звичайні
+            if referral_attacks > 0:
+                await conn.execute(
+                    'UPDATE users SET referral_attacks = referral_attacks - 1, last_attack_date = $1 WHERE user_id = $2',
+                    get_kyiv_datetime(), user_id
+                )
+            elif promo_attacks > 0:
+                await conn.execute(
+                    'UPDATE users SET promo_attacks = promo_attacks - 1, last_attack_date = $1 WHERE user_id = $2',
+                    get_kyiv_datetime(), user_id
+                )
+            elif attacks_left > 0:
+                await conn.execute(
+                    'UPDATE users SET attacks_left = attacks_left - 1, last_attack_date = $1 WHERE user_id = $2',
+                    get_kyiv_datetime(), user_id
+                )
         cancel_keyboard = get_cancel_keyboard()
         attack_flags[chat_id] = True 
         status_msg = await message.answer(
