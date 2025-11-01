@@ -1823,16 +1823,21 @@ async def handle_phone_number(message: Message, state: FSMContext = None):
                 # Перевіряємо що зміни застосувалися
                 new_value = await conn.fetchval('SELECT promo_attacks FROM users WHERE user_id = $1', user_id)
                 logging.info(f"Списано 1 промо атаку для user_id={user_id}, було: {promo_attacks}, стало: {new_value}")
-            elif attacks_left > 0:
-                await conn.execute(
-                    'UPDATE users SET attacks_left = GREATEST(0, COALESCE(attacks_left, 0) - 1), last_attack_date = $1 WHERE user_id = $2',
-                    get_kyiv_datetime(), user_id
-                )
-                # Перевіряємо що зміни застосувалися
-                new_value = await conn.fetchval('SELECT attacks_left FROM users WHERE user_id = $1', user_id)
-                logging.info(f"Списано 1 звичайну атаку для user_id={user_id}, було: {attacks_left}, стало: {new_value}")
             else:
-                logging.warning(f"Спроба списати атаку для user_id={user_id}, але всі типи атак = 0 (attacks_left={attacks_left}, promo_attacks={promo_attacks}, referral_attacks={referral_attacks})")
+                # Якщо реферальних і промо немає (або = 0), списуємо звичайні
+                # Перевіряємо чи є звичайні атаки (вони мають бути, бо total_attacks > 0)
+                if attacks_left > 0:
+                    await conn.execute(
+                        'UPDATE users SET attacks_left = GREATEST(0, COALESCE(attacks_left, 0) - 1), last_attack_date = $1 WHERE user_id = $2',
+                        get_kyiv_datetime(), user_id
+                    )
+                    # Перевіряємо що зміни застосувалися
+                    new_value = await conn.fetchval('SELECT attacks_left FROM users WHERE user_id = $1', user_id)
+                    logging.info(f"Списано 1 звичайну атаку для user_id={user_id}, було: {attacks_left}, стало: {new_value}")
+                else:
+                    logging.error(f"КРИТИЧНА ПОМИЛКА: total_attacks={total_attacks} > 0, але всі типи атак = 0! (attacks_left={attacks_left}, promo_attacks={promo_attacks}, referral_attacks={referral_attacks})")
+                    await message.answer("❌ Помилка при списанні атак. Зверніться до адміністратора.")
+                    return
         cancel_keyboard = get_cancel_keyboard()
         attack_flags[chat_id] = True 
         status_msg = await message.answer(
