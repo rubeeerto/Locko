@@ -1327,7 +1327,13 @@ async def start_attack_prompt(message: Message):
         await message.answer("Ви відписалися від каналу. Підпишіться, щоб продовжити використання бота.", reply_markup=checkSubMenu)
         return
     
-    # Бот безлімітний - перевірка лімітів вимкнена
+    # Перевіряємо наявність атак
+    can_attack, attacks_left, promo_attacks, referral_attacks = await check_attack_limits(user_id)
+    total_attacks = attacks_left + promo_attacks + referral_attacks
+    
+    if total_attacks <= 0:
+        await message.answer("❌ У вас немає доступних атак. Перевірте ваші атаки командою ❓ Перевірити атаки")
+        return
     
     message_text = '🎯 Готовий до атаки!\n\n💥 Очікую на номер телефону..'
     
@@ -1863,6 +1869,76 @@ async def cancel_attack(callback_query: types.CallbackQuery):
     except Exception:
         pass
 
+async def reset_daily_attacks():
+    """Відновлює атаки для всіх користувачів о 00:00 за київським часом"""
+    if not db_pool:
+        return
+    
+    today = get_kyiv_date()
+    kyiv_now = get_kyiv_datetime()
+    
+    try:
+        async with db_pool.acquire() as conn:
+            # Отримуємо всіх користувачів, у яких last_attack_date відрізняється від сьогодні
+            updated_count = await conn.execute(
+                """
+                UPDATE users 
+                SET attacks_left = 30, 
+                    referral_attacks = 0, 
+                    unused_referral_attacks = 0, 
+                    last_attack_date = $1
+                WHERE last_attack_date::date != $2 OR last_attack_date IS NULL
+                """,
+                kyiv_now, today
+            )
+            
+            # updated_count у asyncpg містить рядок типу "UPDATE 15", де 15 - кількість оновлених рядків
+            count = updated_count.split()[-1] if updated_count else "0"
+            logging.info(f"Автоматичне відновлення атак о 00:00: оновлено користувачів: {count}")
+    except Exception as e:
+        logging.error(f"Помилка при автоматичному відновленні атак: {e}")
+
+async def daily_attacks_reset_scheduler():
+    """Фоновий task, який перевіряє час і відновлює атаки о 00:00"""
+    last_reset_date = None
+    
+    def get_kyiv_now():
+        """Повертає поточний datetime з київським timezone"""
+        if ZoneInfo:
+            kyiv_tz = ZoneInfo("Europe/Kyiv")
+            return datetime.now(kyiv_tz)
+        elif pytz:
+            kyiv_tz = pytz.timezone("Europe/Kyiv")
+            return datetime.now(kyiv_tz)
+        else:
+            return datetime.now()
+    
+    while True:
+        try:
+            # Отримуємо київський час з timezone
+            now = get_kyiv_now()
+            current_date = now.date()
+            current_hour = now.hour
+            current_minute = now.minute
+            
+            # Перевіряємо чи настав новий день (00:00-00:01)
+            # і чи ще не виконувалось відновлення на цю дату
+            if current_hour == 0 and current_minute < 2:
+                if last_reset_date != current_date:
+                    logging.info(f"Запуск автоматичного відновлення атак о {now.strftime('%H:%M:%S')} за київським часом")
+                    await reset_daily_attacks()
+                    last_reset_date = current_date
+            else:
+                # Якщо не 00:00, скидаємо last_reset_date щоб наступного дня знову відновити
+                if last_reset_date and last_reset_date != current_date:
+                    last_reset_date = None
+            
+            # Перевіряємо кожну хвилину
+            await asyncio.sleep(60)
+        except Exception as e:
+            logging.error(f"Помилка в scheduler відновлення атак: {e}")
+            await asyncio.sleep(60)
+
 async def check_attack_limits(user_id: int):
     today = get_kyiv_date()
     
@@ -2305,8 +2381,15 @@ async def process_referral(referrer_id, user_id, username, name):
         except Exception as e:
             logging.error(f"Error notifying users about referral: {e}")
 
+async def on_startup(dp):
+    """Функція, яка викликається при старті бота"""
+    logging.info("Запуск фонових задач...")
+    # Запускаємо scheduler для автоматичного відновлення атак
+    asyncio.create_task(daily_attacks_reset_scheduler())
+    logging.info("Фонові задачі запущено")
+
 if __name__ == '__main__':
     logging.info("Запуск бота...")
     loop = asyncio.get_event_loop()
     loop.run_until_complete(init_db())
-    executor.start_polling(dp, skip_updates=True)
+    executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
