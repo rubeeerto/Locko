@@ -1795,10 +1795,12 @@ async def handle_phone_number(message: Message, state: FSMContext = None):
                 await message.answer("Помилка: Не вдалося знайти користувача.")
                 return
             
-            attacks_left = user_data['attacks_left'] or 0
-            promo_attacks = user_data['promo_attacks'] or 0
-            referral_attacks = user_data['referral_attacks'] or 0
+            attacks_left = user_data['attacks_left'] if user_data['attacks_left'] is not None else 0
+            promo_attacks = user_data['promo_attacks'] if user_data['promo_attacks'] is not None else 0
+            referral_attacks = user_data['referral_attacks'] if user_data['referral_attacks'] is not None else 0
             total_attacks = attacks_left + promo_attacks + referral_attacks
+            
+            logging.info(f"Перевірка атак для user_id={user_id}: attacks_left={attacks_left}, promo_attacks={promo_attacks}, referral_attacks={referral_attacks}, total={total_attacks}")
             
             if total_attacks <= 0:
                 await message.answer("❌ У вас немає доступних атак. Перевірте ваші атаки командою ❓ Перевірити атаки")
@@ -1807,19 +1809,30 @@ async def handle_phone_number(message: Message, state: FSMContext = None):
             # Зменшуємо атаки: спочатку реферальні, потім промо, потім звичайні
             if referral_attacks > 0:
                 await conn.execute(
-                    'UPDATE users SET referral_attacks = referral_attacks - 1, last_attack_date = $1 WHERE user_id = $2',
+                    'UPDATE users SET referral_attacks = GREATEST(0, COALESCE(referral_attacks, 0) - 1), last_attack_date = $1 WHERE user_id = $2',
                     get_kyiv_datetime(), user_id
                 )
+                # Перевіряємо що зміни застосувалися
+                new_value = await conn.fetchval('SELECT referral_attacks FROM users WHERE user_id = $1', user_id)
+                logging.info(f"Списано 1 реферальну атаку для user_id={user_id}, було: {referral_attacks}, стало: {new_value}")
             elif promo_attacks > 0:
                 await conn.execute(
-                    'UPDATE users SET promo_attacks = promo_attacks - 1, last_attack_date = $1 WHERE user_id = $2',
+                    'UPDATE users SET promo_attacks = GREATEST(0, COALESCE(promo_attacks, 0) - 1), last_attack_date = $1 WHERE user_id = $2',
                     get_kyiv_datetime(), user_id
                 )
+                # Перевіряємо що зміни застосувалися
+                new_value = await conn.fetchval('SELECT promo_attacks FROM users WHERE user_id = $1', user_id)
+                logging.info(f"Списано 1 промо атаку для user_id={user_id}, було: {promo_attacks}, стало: {new_value}")
             elif attacks_left > 0:
                 await conn.execute(
-                    'UPDATE users SET attacks_left = attacks_left - 1, last_attack_date = $1 WHERE user_id = $2',
+                    'UPDATE users SET attacks_left = GREATEST(0, COALESCE(attacks_left, 0) - 1), last_attack_date = $1 WHERE user_id = $2',
                     get_kyiv_datetime(), user_id
                 )
+                # Перевіряємо що зміни застосувалися
+                new_value = await conn.fetchval('SELECT attacks_left FROM users WHERE user_id = $1', user_id)
+                logging.info(f"Списано 1 звичайну атаку для user_id={user_id}, було: {attacks_left}, стало: {new_value}")
+            else:
+                logging.warning(f"Спроба списати атаку для user_id={user_id}, але всі типи атак = 0 (attacks_left={attacks_left}, promo_attacks={promo_attacks}, referral_attacks={referral_attacks})")
         cancel_keyboard = get_cancel_keyboard()
         attack_flags[chat_id] = True 
         status_msg = await message.answer(
