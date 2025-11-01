@@ -505,3 +505,23 @@ headers_silpo = {
     "TE": "trailers",
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0",
 }
+
+headers_goodwine = {
+    "Accept": "*/*",
+    "Accept-Encoding": "gzip, deflate, br, zstd",
+    "Accept-Language": "ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3",
+    "Alt-Used": "goodwine.com.ua",
+    "Connection": "keep-alive",
+    "Content-Type": "application/json",
+    "Cookie": "mst-cache-warmer-track=1762038691072; PHPSESSID=k5349gsifm0i7gsdvqnnle846j; form_key=orVwJwMumVm9x7IG; last_visited_store=ua; mage-cache-sessid=true; city_id=9612; city_name=%D0%9A%D0%B8%D1%97%D0%B2; area_name=%D0%9A%D0%B8%D1%97%D0%B2%D1%81%D1%8C%D0%BA%D0%B0; region_name=; courier_available=true; is_np_available=true; _gcl_aw=GCL.1762038693.Cj0KCQjw35bIBhDqARIsAGjd-cbAglbtuRhWLu0zAPIXGYyGa4Ec1DlsPEiysTPTFNt5I_Ivie2bc4caAjNEEALw_wcB; _gcl_gs=2.1.k1$i1762038691$u129541658; _gcl_au=1.1.494294806.1762038671.101771138.1762038709.1762038708; _clck=1mv9car%5E2%5Eg0n%5E0%5E2131; _ga_NH5VWFJVV0=GS2.1.s1762038673$o1$g1$t1762038698$j35$l0$h0; _ga=GA1.1.1209466467.1762038673; _fbp=fb.2.1762038673890.86169358251488936; _clsk=18w47o2%5E1762038695338%5E2%5E1%5Ej.clarity.ms%2Fcollect; qr_session_id=k5349gsifm0i7gsdvqnnle846j",
+    "Host": "goodwine.com.ua",
+    "Origin": "https://goodwine.com.ua",
+    "Priority": "u=0",
+    "Referer": "https://goodwine.com.ua/ua/?gad_source=1&gad_campaignid=703696452&gclid=Cj0KCQjw35bIBhDqARIsAGjd-cbAglbtuRhWLu0zAPIXGYyGa4Ec1DlsPEiysTPTFNt5I_Ivie2bc4caAjNEEALw_wcB",
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin",
+    "TE": "trailers",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0",
+    "X-Requested-With": "XMLHttpRequest",
+}

