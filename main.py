@@ -1274,7 +1274,7 @@ async def referral_program(message: types.Message):
             message_text += f"• <a href='tg://user?id={ref['user_id']}'>{ref_name}</a> - {ref['join_date'].strftime('%d.%m.%Y')}\n"
     
     keyboard = InlineKeyboardMarkup()
-    share_text = "Привіт! Приєднуйся до нашого боту! 📱 Завдяки тобі ми зможемо зростати та робити для тебе ще більше 🚀"
+    share_text = f"Привіт! Приєднуйся до нашого боту! 📱 Завдяки тобі ми зможемо зростати та робити для тебе ще більше 🚀\n\n{referral_link}"
     encoded_text = urllib.parse.quote(share_text)
     share_url = f"https://t.me/share/url?url={referral_link}&text={encoded_text}"
     keyboard.add(InlineKeyboardButton("🎯 Поділитися посиланням", url=share_url))
@@ -1403,7 +1403,15 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
                     
                     # Детальне логування успішного запиту
                     if response.status == 200:
-                        logging.info(f"[SUCCESS] {domain} | Статус: {response.status} | Час: {elapsed_time:.2f}s | Номер: {number}")
+                        # Перевіряємо чи відповідь містить ознаки успішної відправки SMS
+                        sms_sent_indicators = ['sent', 'success', 'ок', 'успішно', 'sms', 'code sent', 'отправлено', 'отправлен']
+                        response_lower = response_preview.lower()
+                        sms_confirmed = any(indicator in response_lower for indicator in sms_sent_indicators)
+                        
+                        if sms_confirmed:
+                            logging.info(f"[SUCCESS ✅ SMS] {domain} | Статус: {response.status} | Час: {elapsed_time:.2f}s | Номер: {number}")
+                        else:
+                            logging.info(f"[SUCCESS ⚠️] {domain} | Статус: {response.status} | Час: {elapsed_time:.2f}s | Номер: {number} | SMS не підтверджено")
                         logging.debug(f"[RESPONSE] {domain} | Відповідь: {response_preview}")
                     # Детальне логування неуспішного запиту
                     else:
