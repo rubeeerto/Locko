@@ -1900,9 +1900,9 @@ async def check_attack_limits(user_id: int):
             attacks_left = new_attacks
             referral_attacks = 0
             unused_referral_attacks = 0
-        elif attacks_left < 30:
-            # Якщо це поточний день, але атак менше 30 - встановлюємо 30
-            # Це виправляє ситуації, коли в базі було старе значення
+        elif attacks_left is None or attacks_left < 0:
+            # Якщо значення NULL або негативне - встановлюємо 30
+            # Це виправляє ситуації, коли в базі було некоректне значення
             new_attacks = 30
             await conn.execute(
                 "UPDATE users SET attacks_left = $1 WHERE user_id = $2",
