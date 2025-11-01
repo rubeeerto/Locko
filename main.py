@@ -100,6 +100,9 @@ db_config = {
 db_pool = None
 
 attack_flags = {}
+# Прапорці для активних атак користувачів (щоб не дозволити одночасні атаки)
+# Використовуємо chat_id як ключ (в private чатах chat_id == user_id)
+active_attacks = {}  # chat_id -> True/False
 # Прапорці для розіграшів
 giveaway_flags = {}
 
@@ -1288,7 +1291,7 @@ async def check_user_attacks(message: types.Message):
            f'🎯 Звичайних атак: <b>{attacks_left}</b>\n' \
            f'🎁 Промо атак: <b>{promo_attacks}</b>\n' \
            f'🎪 Реферальних атак: <b>{referral_attacks}</b>\n\n' \
-           f'📊 <b>Всього: {total} з 30 можливих</b>'
+           f'🔄 Атаки відновляються о 00:00'
     await message.answer(text, parse_mode='HTML')
 
 @dp.message_handler(text='🎯 Почати атаку')
@@ -1613,6 +1616,8 @@ async def start_attack(number, chat_id):
         await bot.send_message(chat_id, "❌ Сталася помилка при виконанні атаки.")
     finally:
         attack_flags[chat_id] = False
+        # Видаляємо активну атаку користувача
+        active_attacks.pop(chat_id, None)
 
     logging.info(f"Атака на номер {number} завершена")
     
@@ -1719,6 +1724,11 @@ async def handle_phone_number(message: Message, state: FSMContext = None):
                 await message.answer("❌ У вас немає доступних атак. Перевірте ваші атаки командою ❓ Перевірити атаки")
                 return
             
+            # Перевіряємо чи немає вже активної атаки для цього користувача (в private чатах chat_id == user_id)
+            if active_attacks.get(chat_id, False):
+                await message.answer("⏳ У вас вже активна атака. Зачекайте поки вона завершиться або зупиніть її.")
+                return
+            
             # Зменшуємо атаки: спочатку реферальні, потім промо, потім звичайні
             if referral_attacks > 0:
                 await conn.execute(
@@ -1751,6 +1761,9 @@ async def handle_phone_number(message: Message, state: FSMContext = None):
                     logging.error(f"КРИТИЧНА ПОМИЛКА: total_attacks={total_attacks} > 0, але всі типи атак = 0! (attacks_left={attacks_left}, promo_attacks={promo_attacks}, referral_attacks={referral_attacks})")
                     await message.answer("❌ Помилка при списанні атак. Зверніться до адміністратора.")
                     return
+        
+        # Позначаємо що атака активна для цього користувача (в private чатах chat_id == user_id)
+        active_attacks[chat_id] = True
         cancel_keyboard = get_cancel_keyboard()
         attack_flags[chat_id] = True 
         status_msg = await message.answer(
@@ -1768,6 +1781,8 @@ async def handle_phone_number(message: Message, state: FSMContext = None):
 async def cancel_attack(callback_query: types.CallbackQuery):
     chat_id = callback_query.message.chat.id
     attack_flags[chat_id] = False
+    # Видаляємо активну атаку користувача (в private чатах chat_id == user_id)
+    active_attacks.pop(chat_id, None)
     await callback_query.answer("Зупиняємо...")
     try:
         msg_id = last_status_msg.get(chat_id)
