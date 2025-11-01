@@ -485,3 +485,23 @@ headers_smartmedical = {
     "Upgrade-Insecure-Requests": "1",
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0",
 }
+
+headers_silpo = {
+    "Accept": "application/json",
+    "Accept-Encoding": "gzip, deflate, br, zstd",
+    "Accept-Language": "ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3",
+    "baggage": "sentry-environment=production,sentry-public_key=6588838cde0218a0ed5fac3e9515c444,sentry-trace_id=4407efd5aa2c47b7b60aebf0e2dab395,sentry-sampled=false,sentry-sample_rand=0.2814369590391488,sentry-sample_rate=0.01",
+    "Connection": "keep-alive",
+    "Content-Type": "application/json",
+    "Cookie": "__cf_bm=5dPt9lyyJvAOudzkR_9vDtZVwmhLfNKcA8jECWbS4RM-1762038402-1.0.1.1-2CS86.2y1ubCZw4at.qBWFHBOITrz4D2VEN5YreReXhmK0NgQ9ZkZ7PDk1Fh9HGaLywfJSQt6XLnhvtKjZXsz3Z8bl.r5G0zw1bFLdT_KU0; deduplication_cookie=advAutoMarkup; _ttgclid=EAIaIQobChMItNeXx4jSkAMV02SRBR0Zsym9EAAYASAAEgJhxPD_BwE; _gcl_aw=GCL.1762038407.EAIaIQobChMItNeXx4jSkAMV02SRBR0Zsym9EAAYASAAEgJhxPD_BwE; _gcl_gs=2.1.k1$i1762038403$u60528559; _gcl_au=1.1.1604625335.1762038405; visitor=CfDJ8NJln18BaPFPo25VS0Y4KSkgyHy4PZdphGHb5QVj4ylYuATNQnennhBHm0QwVyU08…$h0; _ga=GA1.1.594970398.1762038406; _ga_QCMSL3JRRH=GS2.1.s1762038405$o1$g1$t1762038496$j31$l0$h0; sc=F641F94F-828B-6F30-3090-0916AD296C34; _ga_13D7VWD40J=GS2.1.s1762038407$o1$g0$t1762038407$j60$l0$h0; _tt_enable_cookie=1; _ttp=01K90TRR26VHQH63H3MEGBYN7K_.tt.1; ttcsid_D1E0HFJC77UB0U424870=1762038407253::99F80vDkpHy9HF2zic6o.1.1762038425860.0; ttcsid=1762038407254::7DJ87USUcRFmbNBPcYL2.1.1762038425860.0; _fbp=fb.1.1762038407677.561693042571183453; _ga_BZ285WYL65=GS2.1.s1762038430$o1$g1$t1762038440$j50$l0$h0",
+    "Host": "auth.silpo.ua",
+    "Origin": "https://auth.silpo.ua",
+    "Priority": "u=0",
+    "Referer": "https://auth.silpo.ua/login",
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin",
+    "sentry-trace": "4407efd5aa2c47b7b60aebf0e2dab395-a17c6b67277d2028-0",
+    "TE": "trailers",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0",
+}
