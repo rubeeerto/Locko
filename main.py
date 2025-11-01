@@ -1327,7 +1327,7 @@ async def start_attack_prompt(message: Message):
     total_attacks = attacks_left + promo_attacks + referral_attacks
     
     if total_attacks <= 0:
-        await message.answer("❌ У вас немає доступних атак. Перевірте ваші атаки командою ❓ Перевірити атаки")
+        await message.answer("❌ У вас немає доступних атак. Вони відновляться завтра")
         return
     
     message_text = '🎯 Готовий до атаки!\n\n💥 Очікую на номер телефону..'
