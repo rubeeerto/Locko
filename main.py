@@ -1524,8 +1524,10 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
     sweet_url = "https://sweet.tv/"
     try:
         async with aiohttp.ClientSession() as session:
+            # Створюємо headers без brotli для уникнення помилки декодування
+            headers_no_br = {**headers_sweet, "Accept-Encoding": "gzip, deflate"}
             # Отримуємо сторінку для знаходження site key reCAPTCHA
-            async with session.get(sweet_url, headers=headers_sweet, proxy=proxy_url, proxy_auth=proxy_auth) as response:
+            async with session.get(sweet_url, headers=headers_no_br, proxy=proxy_url, proxy_auth=proxy_auth) as response:
                 html = await response.text()
                 soup = BeautifulSoup(html, "html.parser")
                 
