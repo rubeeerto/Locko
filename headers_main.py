@@ -595,3 +595,40 @@ headers_brabrabra = {
     "TE": "trailers",
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
 }
+
+cookies_workua = {
+    "_maau": "geoIWvmewkKt17qmwlsPo7",
+    "wsid": "01K931ZFACMH6HAFPSGE1931M0",
+    "wdid": "01K931ZFACMH6HAFPSGE1931M1",
+    "_gcl_au": "1.1.863005274.1762113079",
+    "_fbp": "fb.1.1762113080073.378479774358065138",
+    "_ga_SJB1ZMRS7R": "GS2.1.s1762113080$o1$g1$t1762113084$j56$l0$h0",
+    "_ga": "GA1.1.1267907536.1762113080",
+    "_tt_enable_cookie": "1",
+    "_ttp": "01K931ZMGHZJZPKQQFXCHDSWTE_.tt.1",
+    "ttcsid_D1VNV0RC77UB64C1SH70": "1762113081890::u_9eH-xU3ZMkHFRt7NCK.1.1762113131391.0",
+    "ttcsid": "1762113081890::Ix5TxaFp08Ei7vTRBcmy.1.1762113131391.0",
+    "ttcsid_D2149AJC77UBOJ7PNGJ0": "1762113081890::etPwu0lD-kAR59uf56VK.1.1762113131391.0",
+}
+
+headers_workua = {
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Encoding": "gzip, deflate, br, zstd",
+    "Accept-Language": "uk-UA,uk;q=0.8,en-US;q=0.5,en;q=0.3",
+    "Connection": "keep-alive",
+    "Content-Type": "application/json",
+    "Cookie": "_maau=geoIWvmewkKt17qmwlsPo7; wsid=01K931ZFACMH6HAFPSGE1931M0; wdid=01K931ZFACMH6HAFPSGE1931M1; _gcl_au=1.1.863005274.1762113079; _fbp=fb.1.1762113080073.378479774358065138; _ga_SJB1ZMRS7R=GS2.1.s1762113080$o1$g1$t1762113084$j56$l0$h0; _ga=GA1.1.1267907536.1762113080; _tt_enable_cookie=1; _ttp=01K931ZMGHZJZPKQQFXCHDSWTE_.tt.1; ttcsid_D1VNV0RC77UB64C1SH70=1762113081890::u_9eH-xU3ZMkHFRt7NCK.1.1762113131391.0; ttcsid=1762113081890::Ix5TxaFp08Ei7vTRBcmy.1.1762113131391.0; ttcsid_D2149AJC77UBOJ7PNGJ0=1762113081890::etPwu0lD-kAR59uf56VK.1.1762113131391.0",
+    "Host": "www.work.ua",
+    "Origin": "https://www.work.ua",
+    "Priority": "u=0",
+    "Referer": "https://www.work.ua/jobseeker/login/",
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-GPC": "1",
+    "TE": "trailers",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+    "X-Locale": "ua",
+    "X-Requested-With": "XMLHttpRequest",
+    "X-State": "rareCommon:5bd5eec51f60c99d0e6fc1eeb022dade;frequentCommon:c5aa1cf888a4c4c108d5f1410ebd9f10",
+}
