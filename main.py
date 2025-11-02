@@ -1043,7 +1043,7 @@ async def add_to_blacklist_process(message: Message, state: FSMContext):
         phone = '380' + phone[1:]
 
     if not re.match(r"^\d{12}$", phone):
-        await message.answer("❌ Невірний формат номера.\n\nВведіть номер повторно або напишіть <b>Скасувати</b> для відміни.\nПриклад: <i>🇺🇦380XXXXXXXXX</i>", parse_mode="html")
+        await message.answer("🔢 Вибачте, але номер введено некоректно.\n\nСпробуйте ще раз або напишіть <b>Скасувати</b> для відміни.\n💡 Формат: <i>🇺🇦380XXXXXXXXX</i>", parse_mode="html")
         return
 
     try:
@@ -1799,7 +1799,7 @@ async def handle_phone_number(message: Message, state: FSMContext = None):
 
         asyncio.create_task(start_attack(number, chat_id))
     else:
-        await message.answer("Невірний формат номера.\nВведіть номер повторно.\nПриклад: <i>🇺🇦380XXXXXXXXX</i>", parse_mode="html")
+        await message.answer("🔢 Номер введено некоректно.\nВведіть номер повторно \nФормат: <i>🇺🇦380XXXXXXXXX</i>", parse_mode="html")
 
 @dp.callback_query_handler(lambda c: c.data == "cancel_attack")
 async def cancel_attack(callback_query: types.CallbackQuery):
