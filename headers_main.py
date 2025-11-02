@@ -555,3 +555,43 @@ headers_finbert = {
     "Upgrade-Insecure-Requests": "1",
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
 }
+
+cookies_brabrabra = {
+    "PHPSESSID": "wnF8bbib0bPFFZpDuqZnCDfNW65c7fkd",
+    "reference": "SITE%7Cduckduckgo.com%7C",
+    "brabrabra_IEC_VID": "1f95ee81-ea76-469d-95b7-e1d83442c12d",
+    "brabrabra_IEC_CHK": "N",
+    "brabrabra_SALE_UID": "7abdb29b61b22a50bd0ce610975499b3",
+    "BITRIX_CONVERSION_CONTEXT_s1": "%7B%22ID%22%3A9%2C%22EXPIRE%22%3A1762120740%2C%22UNIQUE%22%3A%5B%22conversion_visit_day%22%5D%7D",
+    "_gcl_au": "1.1.1861538911.1762074632",
+    "sbjs_migrations": "1418474375998%3D1",
+    "sbjs_current_add": "fd%3D2025-11-02%2009%3A10%3A31%7C%7C%7Cep%3Dhttps%3A%2F%2Fbrabrabra.ua%2F%7C%7C%7Crf%3Dh…%2F%2Fbrabrabra.ua%2Fua%2Fikp%2F",
+    "_ga_ZCE0R5FXSX": "GS2.1.s1762074632$o1$g1$t1762074658$j34$l0$h11791790",
+    "_ga": "GA1.1.1300617809.1762074632",
+    "_tt_enable_cookie": "1",
+    "_ttp": "01K91XA8VZ3CZJVNX2S5KXMC4C_.tt.1",
+    "ttcsid_D0DH5P3C77UF1HSANCDG": "1762074633087::G_yakMAKEiGnfWJT1zdl.1.1762074645704.0",
+    "ttcsid": "1762074633087::TLBBFXai8sfr5SxN86ih.1.1762074645704.0",
+    "_fbp": "fb.1.1762074633821.437477542991083977",
+    "BITRIX_CONVERSION_CONTEXT_ua": "%7B%22ID%22%3A85%2C%22EXPIRE%22%3A1762120740%2C%22UNIQUE%22%3A%5B%22conversion_visit_day%22%5D%7D",
+}
+
+headers_brabrabra = {
+    "Accept": "*/*",
+    "Accept-Encoding": "gzip, deflate, br, zstd",
+    "Accept-Language": "uk-UA,uk;q=0.8,en-US;q=0.5,en;q=0.3",
+    "Bx-ajax": "true",
+    "Connection": "keep-alive",
+    "Content-Type": "application/x-www-form-urlencoded",
+    "Cookie": "PHPSESSID=wnF8bbib0bPFFZpDuqZnCDfNW65c7fkd; reference=SITE%7Cduckduckgo.com%7C; brabrabra_IEC_VID=1f95ee81-ea76-469d-95b7-e1d83442c12d; brabrabra_IEC_CHK=N; brabrabra_SALE_UID=7abdb29b61b22a50bd0ce610975499b3; BITRIX_CONVERSION_CONTEXT_s1=%7B%22ID%22%3A9%2C%22EXPIRE%22%3A1762120740%2C%22UNIQUE%22%3A%5B%22conversion_visit_day%22%5D%7D; _gcl_au=1.1.1861538911.1762074632; sbjs_migrations=1418474375998%3D1; sbjs_current_add=fd%3D2025-11-02%2009%3A10%3A31%7C%7C%7Cep%3Dhttps%3A%2F%2Fbrabrabra.ua%2F%7C%7C%7Crf%3Dh…%2F%2Fbrabrabra.ua%2Fua%2Fikp%2F; _ga_ZCE0R5FXSX=GS2.1.s1762074632$o1$g1$t1762074658$j34$l0$h11791790; _ga=GA1.1.1300617809.1762074632; _tt_enable_cookie=1; _ttp=01K91XA8VZ3CZJVNX2S5KXMC4C_.tt.1; ttcsid_D0DH5P3C77UF1HSANCDG=1762074633087::G_yakMAKEiGnfWJT1zdl.1.1762074645704.0; ttcsid=1762074633087::TLBBFXai8sfr5SxN86ih.1.1762074645704.0; _fbp=fb.1.1762074633821.437477542991083977; BITRIX_CONVERSION_CONTEXT_ua=%7B%22ID%22%3A85%2C%22EXPIRE%22%3A1762120740%2C%22UNIQUE%22%3A%5B%22conversion_visit_day%22%5D%7D",
+    "Host": "brabrabra.ua",
+    "Origin": "https://brabrabra.ua",
+    "Priority": "u=0",
+    "Referer": "https://brabrabra.ua/ua/ikp/",
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-GPC": "1",
+    "TE": "trailers",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+}
