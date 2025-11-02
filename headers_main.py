@@ -649,23 +649,21 @@ cookies_megogo = {
     "am-uid": "29ac2ca5ae8a422aa680ba5ed2aa9f12",
 }
 
-headers_megogo = {
-    "Accept": "*/*",
+headers_sweet = {
+    "Accept": "application/json, text/plain, */*",
     "Accept-Encoding": "gzip, deflate, br, zstd",
     "Accept-Language": "uk-UA,uk;q=0.8,en-US;q=0.5,en;q=0.3",
-    "Cache-Control": "no-cache, no-store, must-revalidate",
     "Connection": "keep-alive",
-    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-    "Cookie": "PLAY_SESSION=eyJhbGciOiJIUzI1NiJ9.eyJkYXRhIjp7ImNzcmZUb2tlbiI6IjE1Nzk1MDdjZGU5MzQ5YmQ2ODBkMjc0ZDUzYzRkMzU4ZTUxYWY0Y2UtMTc2MjExMzYyMzg5OS05ZTg2ZjQ1MjdhYjg5ODYzZjUxOWI4ZTIifSwibmJmIjoxNzYyMTEzNjIzLCJpYXQiOjE3NjIxMTM2MjN9.ryPrLl0Y7zRDV9Q487BYFhdnburRrXKmC2U0nCLIL-A; lang=ua; megogo_web_device_id=d2ViXzhqcXZma3hEREZOMTg2TDB2RkthbjBnT2xUaGh2aXNV; _ga=GA1.1.1352968750.1762113625; _gid=GA1.2.1993525388.1762113625; _gat=1; u_timezone_offset=0; _gcl_au=1.1.1045283553.1762113626; store.test; _ga_M45TV3KSHG=GS2.1.s1762113626$o1$g0$t1762113647$j39$l0$h549946644; __gfp_64b=xLmAcqQoxPleJIUZHtbXmPorN_XXPeWaCvCGGcfMYjH.V7|1762113627|2|||8:1:21; am-uid-f=29ac2ca5-ae8a-422a-a680-ba5ed2aa9f12; am-uid=29ac2ca5ae8a422aa680ba5ed2aa9f12",
-    "Expires": "0",
-    "Host": "megogo.net",
-    "Origin": "https://megogo.net",
-    "Pragma": "no-cache",
-    "Referer": "https://megogo.net/ua",
+    "Content-Type": "application/json",
+    "Host": "api.sweet.tv",
+    "Origin": "https://sweet.tv",
+    "Referer": "https://sweet.tv/",
     "Sec-Fetch-Dest": "empty",
     "Sec-Fetch-Mode": "cors",
-    "Sec-Fetch-Site": "same-origin",
+    "Sec-Fetch-Site": "same-site",
     "Sec-GPC": "1",
+    "TE": "trailers",
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
-    "X-Requested-With": "XMLHttpRequest",
+    "X-Accept-Language": "uk",
+    "X-Device": "1;22;0;2;7.0.94",
 }
