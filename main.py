@@ -1446,16 +1446,18 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
                 async with session.request(method, url, **kwargs) as response:
                     elapsed_time = asyncio.get_event_loop().time() - start_time
                     
+                    response_text = None
                     try:
                         response_text = await response.text()
                         response_preview = response_text[:500] if len(response_text) > 500 else response_text
                     except Exception as e:
                         response_preview = f"[Не вдалося прочитати відповідь: {e}]"
+                        response_text = ""
                     
                     # Детальне логування успішного запиту
                     if response.status == 200:
                         # Перевіряємо чи відповідь містить ознаки успішної відправки SMS
-                        sms_sent_indicators = ['sent', 'success', 'ок', 'успішно', 'sms', 'code sent', 'отправлено', 'отправлен']
+                        sms_sent_indicators = ['sent', 'success', 'ок', 'успішно', 'sms', 'code sent', 'отправлено', 'отправлен', 'code', 'sms code', 'verification', 'подтверждение', 'підтвердження', 'отримано', 'получено', 'true', '"status"', '"success"', '"ok"', '"message"', '"result"']
                         response_lower = response_preview.lower()
                         sms_confirmed = any(indicator in response_lower for indicator in sms_sent_indicators)
                         
@@ -1463,7 +1465,8 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
                             logging.info(f"[SUCCESS ✅ SMS] {domain} | Статус: {response.status} | Час: {elapsed_time:.2f}s | Номер: {number}")
                         else:
                             logging.info(f"[SUCCESS ⚠️] {domain} | Статус: {response.status} | Час: {elapsed_time:.2f}s | Номер: {number} | SMS не підтверджено")
-                        logging.debug(f"[RESPONSE] {domain} | Відповідь: {response_preview}")
+                        if response_text:
+                            logging.info(f"[RESPONSE] {domain} | Відповідь (повна): {response_text[:1000] if len(response_text) > 1000 else response_text}")
                     # Детальне логування неуспішного запиту
                     else:
                         logging.warning(f"[FAILED] {domain} | Статус: {response.status} | Час: {elapsed_time:.2f}s | Номер: {number}")
