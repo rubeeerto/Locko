@@ -525,3 +525,33 @@ headers_goodwine = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0",
     "X-Requested-With": "XMLHttpRequest",
 }
+
+cookies_finbert = {
+    "csrftoken": "gkaQ5cgKPApzLwXDcAQCiFsvk39LfwNUs1zTBSw4ahKCl7yNci9lH1qoOJNNlhMG",
+    "_hjSessionUser_2790804": "eyJpZCI6IjQ2MGI5ZGY2LTNkZjQtNWU4ZC1iZjI1LTFmOGFkYWI2Y2JhZSIsImNyZWF0ZWQiOjE3NjIwNzQ0NTE0MTcsImV4aXN0aW5nIjp0cnVlfQ==",
+    "_hjSession_2790804": "eyJpZCI6Ijk3MDM2NWUzLWFkMzctNDg2ZC1hNzhkLTQwYjM1MzNjMWQ2OSIsImMiOjE3NjIwNzQ0NTE0MTcsInMiOjAsInIiOjAsInNiIjowLCJzciI6MCwic2UiOjAsImZzIjoxLCJzcCI6MX0=",
+    "_hjHasCachedUserAttributes": "true",
+    "_ga_X2V222S20J": "GS2.1.s1762074451$o1$g1$t1762074511$j60$l0$h0",
+    "_ga": "GA1.1.44629328.1762074451",
+    "sessionid": "4982xfijy7etaftnf1wjant9ptk5yn2n",
+}
+
+headers_finbert = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Encoding": "gzip, deflate, br, zstd",
+    "Accept-Language": "uk-UA,uk;q=0.8,en-US;q=0.5,en;q=0.3",
+    "Connection": "keep-alive",
+    "Content-Type": "application/x-www-form-urlencoded",
+    "Cookie": "csrftoken=gkaQ5cgKPApzLwXDcAQCiFsvk39LfwNUs1zTBSw4ahKCl7yNci9lH1qoOJNNlhMG; _hjSessionUser_2790804=eyJpZCI6IjQ2MGI5ZGY2LTNkZjQtNWU4ZC1iZjI1LTFmOGFkYWI2Y2JhZSIsImNyZWF0ZWQiOjE3NjIwNzQ0NTE0MTcsImV4aXN0aW5nIjp0cnVlfQ==; _hjSession_2790804=eyJpZCI6Ijk3MDM2NWUzLWFkMzctNDg2ZC1hNzhkLTQwYjM1MzNjMWQ2OSIsImMiOjE3NjIwNzQ0NTE0MTcsInMiOjAsInIiOjAsInNiIjowLCJzciI6MCwic2UiOjAsImZzIjoxLCJzcCI6MX0=; _hjHasCachedUserAttributes=true; _ga_X2V222S20J=GS2.1.s1762074451$o1$g1$t1762074511$j60$l0$h0; _ga=GA1.1.44629328.1762074451; sessionid=4982xfijy7etaftnf1wjant9ptk5yn2n",
+    "Host": "finbert.ua",
+    "Origin": "https://finbert.ua",
+    "Priority": "u=0, i",
+    "Referer": "https://finbert.ua/auth/register/",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-Fetch-User": "?1",
+    "Sec-GPC": "1",
+    "Upgrade-Insecure-Requests": "1",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+}
