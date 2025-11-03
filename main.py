@@ -2557,20 +2557,47 @@ async def process_referral(referrer_id, user_id, username, name):
     if not referrer_id:
         return
     async with db_pool.acquire() as conn:
-        await conn.execute(
-            'INSERT INTO referrals (referrer_id, referred_id) VALUES ($1, $2) ON CONFLICT (referred_id) DO NOTHING',
-            referrer_id, user_id
-        )
-        # Додаємо +10 атак запросившому
-        await conn.execute(
-            'UPDATE users SET referral_attacks = referral_attacks + 10, referral_count = referral_count + 1 WHERE user_id = $1',
-            referrer_id
-        )
-        # Додаємо +10 атак запрошеному
-        await conn.execute(
-            'UPDATE users SET referral_attacks = referral_attacks + 10 WHERE user_id = $1',
+        # Перевіряємо, чи вже існує такий реферал
+        existing_referral = await conn.fetchval(
+            'SELECT 1 FROM referrals WHERE referred_id = $1',
             user_id
         )
+        
+        # Якщо реферал вже існує, не робимо нічого
+        if existing_referral:
+            logging.info(f"Реферал вже існує для user_id={user_id}, referrer_id={referrer_id}")
+            return
+        
+        # Вставляємо новий реферал
+        await conn.execute(
+            'INSERT INTO referrals (referrer_id, referred_id) VALUES ($1, $2)',
+            referrer_id, user_id
+        )
+        
+        # Перевіряємо, чи існують користувачі перед оновленням
+        referrer_exists = await conn.fetchval('SELECT 1 FROM users WHERE user_id = $1', referrer_id)
+        user_exists = await conn.fetchval('SELECT 1 FROM users WHERE user_id = $1', user_id)
+        
+        if not referrer_exists:
+            logging.error(f"Запросивший користувач не існує: referrer_id={referrer_id}")
+            return
+        if not user_exists:
+            logging.error(f"Запрошений користувач не існує: user_id={user_id}")
+            return
+        
+        # Додаємо +10 атак запросившому (використовуємо COALESCE для обробки NULL)
+        result_referrer = await conn.execute(
+            'UPDATE users SET referral_attacks = COALESCE(referral_attacks, 0) + 10, referral_count = COALESCE(referral_count, 0) + 1 WHERE user_id = $1',
+            referrer_id
+        )
+        logging.info(f"Оновлення атак для запросившого (referrer_id={referrer_id}): {result_referrer}")
+        
+        # Додаємо +10 атак запрошеному (використовуємо COALESCE для обробки NULL)
+        result_referred = await conn.execute(
+            'UPDATE users SET referral_attacks = COALESCE(referral_attacks, 0) + 10 WHERE user_id = $1',
+            user_id
+        )
+        logging.info(f"Оновлення атак для запрошеного (user_id={user_id}): {result_referred}")
         try:
             ref_name = username or name or f"User{user_id}"
             # Повідомлення запросившому
