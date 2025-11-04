@@ -1070,21 +1070,67 @@ async def admin_check_services(message: Message):
                         except Exception:
                             pass
                         
-                        # Перевіряємо статус та відповідь
-                        if response.status in [200, 201, 202]:
-                            # Перевіряємо чи відповідь містить ознаки успішної відправки SMS
-                            sms_sent_indicators = ['sent', 'success', 'ок', 'успішно', 'sms', 'code sent', 'отправлено', 'отправлен', 'code', 'sms code', 'verification', 'подтверждение', 'підтвердження', 'отримано', 'получено', 'true', '"status"', '"success"', '"ok"', '"message"', '"result"']
+                        # Перевіряємо статус HTTP
+                        status_code = response.status
+                        
+                        # Помилки, які означають що сервіс не працює
+                        if status_code in [429, 400, 403, 404, 500, 502, 503, 504]:
+                            return f"❌ ({status_code})"
+                        
+                        # Якщо статус 200-299, перевіряємо тіло відповіді
+                        if status_code in [200, 201, 202]:
                             response_lower = response_text.lower()
+                            
+                            # Перевіряємо на помилки в відповіді
+                            error_indicators = [
+                                'too many tries',
+                                'too many requests',
+                                'rate limit',
+                                'rate_limit',
+                                'captcha',
+                                'incapsula',
+                                'incapsula_resource',
+                                'error',
+                                '"error"',
+                                '"success":false',
+                                '"success": false',
+                                'что-то пошло не так',
+                                'failed',
+                                'failure',
+                                'blocked',
+                                'forbidden',
+                                'not found',
+                                'не найдено',
+                                'не знайдено'
+                            ]
+                            
+                            has_error = any(indicator in response_lower for indicator in error_indicators)
+                            
+                            if has_error:
+                                return "❌"
+                            
+                            # Перевіряємо чи відповідь містить ознаки успішної відправки SMS
+                            sms_sent_indicators = [
+                                'sent', 'success', 'ок', 'успішно', 'sms', 'code sent', 
+                                'отправлено', 'отправлен', 'code', 'sms code', 'verification', 
+                                'подтверждение', 'підтвердження', 'отримано', 'получено', 
+                                '"success":true', '"success": true', '"status":"success"',
+                                '"code":"000000"', '"status_code":200'
+                            ]
+                            
                             sms_confirmed = any(indicator in response_lower for indicator in sms_sent_indicators)
                             
-                            if sms_confirmed or response.status == 200:
+                            if sms_confirmed:
                                 return "✅"
                             else:
+                                # 200 без підтвердження SMS - частково працює
                                 return "⚠️"
-                        elif response.status < 500:
-                            return "⚠️"
+                        
+                        # Інші статуси (300-499 крім 400, 403, 404)
+                        elif status_code < 500:
+                            return f"⚠️ ({status_code})"
                         else:
-                            return "❌"
+                            return f"❌ ({status_code})"
             except asyncio.TimeoutError:
                 return "⏱️"
             except Exception as e:
@@ -1119,14 +1165,14 @@ async def admin_check_services(message: Message):
     error_count = 0
     
     for name, status in results:
-        if status == "✅":
-            working_count += 1
-        elif status.startswith("✅"):
+        if status == "✅" or status.startswith("✅"):
             working_count += 1
         elif status == "⚠️" or status.startswith("⚠️"):
             warning_count += 1
         elif status == "⏱️":
             timeout_count += 1
+        elif status.startswith("❌"):
+            error_count += 1
         else:
             error_count += 1
         services_status.append(f"{status} {name}")
