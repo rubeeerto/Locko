@@ -897,44 +897,151 @@ async def admin_check_services(message: Message):
         return
     
     placeholder = await message.answer("Перевіряю сервіси…")
-    services_status = []
     
-    # Перевірка бази даних
-    db_status = "❌ Не працює"
-    try:
-        async with db_pool.acquire() as conn:
-            test_query = await conn.fetchval('SELECT 1')
-            if test_query == 1:
-                db_status = "✅ Працює"
-    except Exception as e:
-        db_status = f"❌ Помилка: {str(e)[:50]}"
-    services_status.append(f"🗄️ База даних: {db_status}")
+    # Список всіх сервісів з URL для перевірки
+    services_to_check = [
+        ("База даних", "db_check", None),
+        ("Проксі", "proxy_check", None),
+        ("Бот", "bot_check", None),
+        ("Telegram", "https://my.telegram.org", None),
+        ("Helsi", "https://helsi.me", None),
+        ("Multiplex", "https://auth.multiplex.ua", None),
+        ("PizzaDay", "https://api.pizzaday.ua", None),
+        ("StationPizza", "https://stationpizza.com.ua", None),
+        ("TakeUseat", "https://core.takeuseat.in.ua", None),
+        ("Aurum", "https://aurum.in.ua", None),
+        ("PizzaTime", "https://pizza-time.eatery.club", None),
+        ("IQ-Pizza", "https://iq-pizza.eatery.club", None),
+        ("Дніпро", "https://dnipro-m.ua", None),
+        ("Citrus", "https://my.ctrs.com.ua", None),
+        ("EasyPay", "https://auth.easypay.ua", None),
+        ("Sandalini", "https://sandalini.ua", None),
+        ("UVape", "https://uvape.pro", None),
+        ("VandalVape", "https://vandalvape.life", None),
+        ("TerraVape", "https://terra-vape.com.ua", None),
+        ("Comfy", "https://im.comfy.ua", None),
+        ("Moyo", "https://www.moyo.ua", None),
+        ("Pizza Od", "https://pizza.od.ua", None),
+        ("Sushiya", "https://sushiya.ua", None),
+        ("Avrora", "https://avrora.ua", None),
+        ("Золота Країна", "https://zolotakraina.ua", None),
+        ("AutoRia", "https://auto.ria.com", None),
+        ("Ukrpas", "https://ukrpas.ua", None),
+        ("Maslotom", "https://maslotom.com", None),
+        ("Varus", "https://varus.ua", None),
+        ("GetVape", "https://getvape.com.ua", None),
+        ("IQOS", "https://api.iqos.com.ua", None),
+        ("LvivKholod", "https://llty-api.lvivkholod.com", None),
+        ("PlanetaKino", "https://api-mobile.planetakino.ua", None),
+        ("Trofim", "https://back.trofim.com.ua", None),
+        ("Robota", "https://dracula.robota.ua", None),
+        ("Kyivstar", "https://shop.kyivstar.ua", None),
+        ("Elmir", "https://elmir.ua", None),
+        ("Bars", "https://bars.itbi.com.ua", None),
+        ("Kolomarket", "https://api.kolomarket.abmloyalty.app", None),
+        ("Apteka24", "https://ucb.z.apteka24.ua", None),
+        ("Ta-Da", "https://api.ta-da.net.ua", None),
+        ("Monto", "https://mobilebanking.monto.com.ua", None),
+        ("SmartMedical", "https://smartmedicalcenter.ua", None),
+        ("Silpo", "https://auth.silpo.ua", None),
+        ("GoodWine", "https://goodwine.com.ua", None),
+        ("Brabrabra", "https://brabrabra.ua", None),
+        ("Finbert", "https://finbert.ua", None),
+        ("Work.ua", "https://www.work.ua", None),
+        ("Binance", "https://accounts.binance.com", None),
+        ("TrafficGuard", "https://api.trafficguard.ai", None),
+        ("Oschadbank", "https://c2c.oschadbank.ua", None),
+        ("Prosto", "https://api.prosto.net", None),
+    ]
     
-    # Перевірка проксі
-    proxy_status = "❌ Не працює"
-    try:
-        stats = await check_and_update_proxies()
-        if stats['healthy'] > 0:
-            proxy_status = f"✅ Працює ({stats['healthy']}/{stats['total']} робочих)"
+    async def check_service_status(name, url_or_type, headers):
+        """Перевіряє статус сервісу"""
+        if url_or_type == "db_check":
+            try:
+                async with db_pool.acquire() as conn:
+                    test_query = await conn.fetchval('SELECT 1')
+                    if test_query == 1:
+                        return "✅"
+            except Exception:
+                return "❌"
+        elif url_or_type == "proxy_check":
+            try:
+                stats = await check_and_update_proxies()
+                if stats['healthy'] > 0:
+                    return f"✅ ({stats['healthy']}/{stats['total']})"
+                else:
+                    return f"⚠️ ({stats['total']})"
+            except Exception:
+                return "❌"
+        elif url_or_type == "bot_check":
+            try:
+                await bot.send_chat_action(message.chat.id, 'typing')
+                return "✅"
+            except Exception:
+                return "❌"
         else:
-            proxy_status = f"⚠️ Немає робочих ({stats['total']} перевірено)"
-    except Exception as e:
-        proxy_status = f"❌ Помилка: {str(e)[:50]}"
-    services_status.append(f"🔌 Проксі: {proxy_status}")
+            # Перевірка HTTP сервісу
+            try:
+                timeout = aiohttp.ClientTimeout(total=3)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.get(url_or_type, headers=headers or {}, allow_redirects=True) as response:
+                        if response.status < 500:
+                            return "✅"
+                        else:
+                            return "⚠️"
+            except asyncio.TimeoutError:
+                return "⏱️"
+            except Exception:
+                return "❌"
     
-    # Перевірка бота (чи він може відправляти повідомлення)
-    bot_status = "❌ Не працює"
-    try:
-        await bot.send_chat_action(message.chat.id, 'typing')
-        bot_status = "✅ Працює"
-    except Exception as e:
-        bot_status = f"❌ Помилка: {str(e)[:50]}"
-    services_status.append(f"🤖 Бот: {bot_status}")
+    # Перевіряємо всі сервіси паралельно
+    headers = {"User-Agent": fake_useragent.UserAgent().random}
+    tasks = []
+    service_names = []
+    for name, url_or_type, custom_headers in services_to_check:
+        task = check_service_status(name, url_or_type, custom_headers or headers)
+        tasks.append(task)
+        service_names.append(name)
     
-    # Загальний статус
-    working_count = sum(1 for s in services_status if "✅" in s)
-    total_count = len(services_status)
-    summary = f"\n📊 Загальний статус: {working_count}/{total_count} сервісів працюють"
+    # Виконуємо перевірки паралельно
+    statuses = await asyncio.gather(*tasks, return_exceptions=True)
+    results = list(zip(service_names, statuses))
+    
+    # Обробляємо винятки
+    processed_results = []
+    for name, status in results:
+        if isinstance(status, Exception):
+            processed_results.append((name, "❌"))
+        else:
+            processed_results.append((name, status))
+    results = processed_results
+    
+    # Формуємо повідомлення
+    services_status = []
+    working_count = 0
+    warning_count = 0
+    timeout_count = 0
+    error_count = 0
+    
+    for name, status in results:
+        if status == "✅":
+            working_count += 1
+        elif status.startswith("✅"):
+            working_count += 1
+        elif status == "⚠️" or status.startswith("⚠️"):
+            warning_count += 1
+        elif status == "⏱️":
+            timeout_count += 1
+        else:
+            error_count += 1
+        services_status.append(f"{status} {name}")
+    
+    summary = f"\n\n📊 <b>Загальний статус:</b>\n"
+    summary += f"✅ Працюють: {working_count}\n"
+    summary += f"⚠️ Попередження: {warning_count}\n"
+    summary += f"⏱️ Таймаут: {timeout_count}\n"
+    summary += f"❌ Не працюють: {error_count}\n"
+    summary += f"📈 Всього: {len(services_to_check)}"
     
     result_text = "🔍 <b>Статус сервісів:</b>\n\n" + "\n".join(services_status) + summary
     
