@@ -412,10 +412,9 @@ headers_ta_da = {
     "Accept": "*/*",
     "Accept-Encoding": "gzip, deflate, br, zstd",
     "Accept-Language": "ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3",
-    "authorization": "Key ac608843f0aa757e79c7541f5fd25193aa606364c3b6593bceec742541caa9d4",
+    "authorization": "Key 11edac6fed03ea90264e53f36a762d87bfdf2ac9ef9f4cea5d85485c4bc02f44",
     "Connection": "keep-alive",
-    "Content-Type": "application/json",
-    "Host": "api.ta-da.net.ua",
+    "content-type": "application/json",
     "Origin": "https://ta-da.ua",
     "platform": "Site",
     "Priority": "u=0",
@@ -424,7 +423,7 @@ headers_ta_da = {
     "Sec-Fetch-Mode": "cors",
     "Sec-Fetch-Site": "cross-site",
     "TE": "trailers",
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0",
+    "User-Agent": "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:144.0) Gecko/20100101 Firefox/144.0",
     "user-language": "ua",
 }
 
