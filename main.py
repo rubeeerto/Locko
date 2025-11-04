@@ -2069,6 +2069,7 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None, proxy_entry=None
                 async with session.request(method, url, **kwargs) as response:
                     elapsed_time = asyncio.get_event_loop().time() - start_time
                     request_success = response.status in [200, 201, 202]
+                    # Завжди виводимо статус в цифрах, навіть якщо це помилка
                     logging.info(f"{domain} | {response.status} | {elapsed_time:.2f}s")
                         
         except asyncio.TimeoutError:
@@ -2077,11 +2078,36 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None, proxy_entry=None
             domain = url.split('/')[2] if '/' in url else url
             logging.info(f"{domain} | TIMEOUT | {elapsed_time:.2f}s")
             
+        except aiohttp.ClientResponseError as e:
+            request_success = False
+            elapsed_time = asyncio.get_event_loop().time() - start_time
+            domain = url.split('/')[2] if '/' in url else url
+            logging.info(f"{domain} | {e.status} | {elapsed_time:.2f}s")
+            
+        except aiohttp.ClientError as e:
+            request_success = False
+            elapsed_time = asyncio.get_event_loop().time() - start_time
+            domain = url.split('/')[2] if '/' in url else url
+            # Спробуємо отримати статус з помилки
+            status_code = getattr(e, 'status', None) or getattr(e, 'code', None) or getattr(e, 'status_code', None)
+            if status_code:
+                logging.info(f"{domain} | {status_code} | {elapsed_time:.2f}s")
+            else:
+                logging.info(f"{domain} | ERROR | {elapsed_time:.2f}s")
+            
         except Exception as e:
             request_success = False
             elapsed_time = asyncio.get_event_loop().time() - start_time
             domain = url.split('/')[2] if '/' in url else url
-            logging.info(f"{domain} | ERROR | {elapsed_time:.2f}s")
+            # Спробуємо отримати статус з помилки з різних місць
+            status_code = (getattr(e, 'status', None) or 
+                          getattr(e, 'code', None) or 
+                          getattr(e, 'status_code', None) or
+                          (e.args[0] if isinstance(e.args[0], int) and 100 <= e.args[0] <= 599 else None))
+            if status_code:
+                logging.info(f"{domain} | {status_code} | {elapsed_time:.2f}s")
+            else:
+                logging.info(f"{domain} | ERROR | {elapsed_time:.2f}s")
         
         finally:
             # Відстежуємо стабільність проксі на основі реальних результатів
