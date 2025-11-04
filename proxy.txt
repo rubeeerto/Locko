@@ -48,4 +48,3 @@
 142.147.245.196:5887:bwhpwpti:nxs57l095mau
 45.43.83.2:6285:bwhpwpti:nxs57l095mau
 45.151.161.133:6224:bwhpwpti:nxs57l095mau
-64.137.93.241:6698:bwhpwpti:nxs57l095mau

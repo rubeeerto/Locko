@@ -582,6 +582,7 @@ admin_keyboard.add("Створити промокод")
 admin_keyboard.add("Видалити промокод")
 admin_keyboard.add("Список промокодів")
 admin_keyboard.add("Перевірити проксі")
+admin_keyboard.add("Перевірити сервіси")
 admin_keyboard.add("Назад")
 
 def load_proxies_from_file(path: str = "proxy.txt"):
@@ -700,7 +701,7 @@ async def add_user(user_id: int, name: str, username: str, referrer_id: int = No
     async with db_pool.acquire() as conn:
         await conn.execute(
             'INSERT INTO users (user_id, name, username, block, attacks_left, promo_attacks, referral_attacks, unused_referral_attacks, last_attack_date, referrer_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (user_id) DO NOTHING',
-            user_id, name, username, 0, 30, 0, 0, 0, today, referrer_id
+            user_id, name, username, 0, 20, 0, 0, 0, today, referrer_id
         )
         
         if referrer_id:
@@ -888,6 +889,59 @@ async def admin_check_and_report_proxies(message: Message):
         await bot.edit_message_text("\n".join(lines), chat_id=placeholder.chat.id, message_id=placeholder.message_id)
     except Exception:
         await message.answer("\n".join(lines))
+
+@dp.message_handler(text="Перевірити сервіси")
+async def admin_check_services(message: Message):
+    if message.from_user.id not in ADMIN:
+        await message.answer("Недостатньо прав.")
+        return
+    
+    placeholder = await message.answer("Перевіряю сервіси…")
+    services_status = []
+    
+    # Перевірка бази даних
+    db_status = "❌ Не працює"
+    try:
+        async with db_pool.acquire() as conn:
+            test_query = await conn.fetchval('SELECT 1')
+            if test_query == 1:
+                db_status = "✅ Працює"
+    except Exception as e:
+        db_status = f"❌ Помилка: {str(e)[:50]}"
+    services_status.append(f"🗄️ База даних: {db_status}")
+    
+    # Перевірка проксі
+    proxy_status = "❌ Не працює"
+    try:
+        stats = await check_and_update_proxies()
+        if stats['healthy'] > 0:
+            proxy_status = f"✅ Працює ({stats['healthy']}/{stats['total']} робочих)"
+        else:
+            proxy_status = f"⚠️ Немає робочих ({stats['total']} перевірено)"
+    except Exception as e:
+        proxy_status = f"❌ Помилка: {str(e)[:50]}"
+    services_status.append(f"🔌 Проксі: {proxy_status}")
+    
+    # Перевірка бота (чи він може відправляти повідомлення)
+    bot_status = "❌ Не працює"
+    try:
+        await bot.send_chat_action(message.chat.id, 'typing')
+        bot_status = "✅ Працює"
+    except Exception as e:
+        bot_status = f"❌ Помилка: {str(e)[:50]}"
+    services_status.append(f"🤖 Бот: {bot_status}")
+    
+    # Загальний статус
+    working_count = sum(1 for s in services_status if "✅" in s)
+    total_count = len(services_status)
+    summary = f"\n📊 Загальний статус: {working_count}/{total_count} сервісів працюють"
+    
+    result_text = "🔍 <b>Статус сервісів:</b>\n\n" + "\n".join(services_status) + summary
+    
+    try:
+        await bot.edit_message_text(result_text, chat_id=placeholder.chat.id, message_id=placeholder.message_id, parse_mode="HTML")
+    except Exception:
+        await message.answer(result_text, parse_mode="HTML")
 
 # ПРОМОКОДЫ - АДМИН ПАНЕЛЬ
 
@@ -1181,11 +1235,19 @@ async def bot_stats(message: Message):
             total_promos = await conn.fetchval('SELECT COUNT(*) FROM promocodes')
             active_promos = await conn.fetchval('SELECT COUNT(*) FROM promocodes WHERE is_active = TRUE AND valid_until > $1', datetime.now())
             promo_activations = await conn.fetchval('SELECT COUNT(*) FROM promo_activations')
+            
+            # Активні користувачі за день (ті, хто мав активність сьогодні)
+            today = get_kyiv_date()
+            active_users_today = await conn.fetchval(
+                'SELECT COUNT(*) FROM users WHERE last_attack_date::date = $1',
+                today
+            )
         
         message_text = (
             f"📊 <b>Статистика бота</b>\n\n"
             f"👥 Всього користувачів: {total_users}\n"
             f"✅ Активних користувачів: {active_users}\n"
+            f"📅 Активних користувачів за день: {active_users_today}\n"
             f"🚫 Заблокованих користувачів: {blocked_users}\n"
             f"📈 Користувачів з рефералами: {users_with_referrals}\n"
             f"🔗 Всього рефералів: {total_referrals}\n"
@@ -2066,63 +2128,66 @@ async def handle_phone_number(message: Message, state: FSMContext = None):
 
         # Перевіряємо та зменшуємо атаки
         async with db_pool.acquire() as conn:
-            user_data = await conn.fetchrow(
-                'SELECT attacks_left, promo_attacks, referral_attacks FROM users WHERE user_id = $1',
-                user_id
-            )
-            
-            if not user_data:
-                await message.answer("Помилка: Не вдалося знайти користувача.")
-                return
-            
-            attacks_left = user_data['attacks_left'] if user_data['attacks_left'] is not None else 0
-            promo_attacks = user_data['promo_attacks'] if user_data['promo_attacks'] is not None else 0
-            referral_attacks = user_data['referral_attacks'] if user_data['referral_attacks'] is not None else 0
-            total_attacks = attacks_left + promo_attacks + referral_attacks
-            
-            logging.info(f"Перевірка атак для user_id={user_id}: attacks_left={attacks_left}, promo_attacks={promo_attacks}, referral_attacks={referral_attacks}, total={total_attacks}")
-            
-            if total_attacks <= 0:
-                await message.answer("❌ У вас немає доступних атак. Перевірте ваші атаки командою ❓ Перевірити атаки")
-                return
-            
-            # Перевіряємо чи немає вже активної атаки для цього користувача (в private чатах chat_id == user_id)
-            if active_attacks.get(chat_id, False):
-                await message.answer("⏳ У вас вже активна атака. Зачекайте поки вона завершиться або зупиніть її.")
-                return
-            
-            # Зменшуємо атаки: спочатку реферальні, потім промо, потім звичайні
-            if referral_attacks > 0:
-                await conn.execute(
-                    'UPDATE users SET referral_attacks = GREATEST(0, COALESCE(referral_attacks, 0) - 1), last_attack_date = $1 WHERE user_id = $2',
-                    get_kyiv_datetime(), user_id
+            # Використовуємо транзакцію для гарантії атомарності
+            async with conn.transaction():
+                user_data = await conn.fetchrow(
+                    'SELECT attacks_left, promo_attacks, referral_attacks FROM users WHERE user_id = $1',
+                    user_id
                 )
-                # Перевіряємо що зміни застосувалися
-                new_value = await conn.fetchval('SELECT referral_attacks FROM users WHERE user_id = $1', user_id)
-                logging.info(f"Списано 1 реферальну атаку для user_id={user_id}, було: {referral_attacks}, стало: {new_value}")
-            elif promo_attacks > 0:
-                await conn.execute(
-                    'UPDATE users SET promo_attacks = GREATEST(0, COALESCE(promo_attacks, 0) - 1), last_attack_date = $1 WHERE user_id = $2',
-                    get_kyiv_datetime(), user_id
-                )
-                # Перевіряємо що зміни застосувалися
-                new_value = await conn.fetchval('SELECT promo_attacks FROM users WHERE user_id = $1', user_id)
-                logging.info(f"Списано 1 промо атаку для user_id={user_id}, було: {promo_attacks}, стало: {new_value}")
-            else:
-                # Якщо реферальних і промо немає (або = 0), списуємо звичайні
-                # Перевіряємо чи є звичайні атаки (вони мають бути, бо total_attacks > 0)
-                if attacks_left > 0:
+                
+                if not user_data:
+                    await message.answer("Помилка: Не вдалося знайти користувача.")
+                    return
+                
+                attacks_left = user_data['attacks_left'] if user_data['attacks_left'] is not None else 0
+                promo_attacks = user_data['promo_attacks'] if user_data['promo_attacks'] is not None else 0
+                referral_attacks = user_data['referral_attacks'] if user_data['referral_attacks'] is not None else 0
+                total_attacks = attacks_left + promo_attacks + referral_attacks
+                
+                logging.info(f"Перевірка атак для user_id={user_id}: attacks_left={attacks_left}, promo_attacks={promo_attacks}, referral_attacks={referral_attacks}, total={total_attacks}")
+                
+                if total_attacks <= 0:
+                    await message.answer("❌ У вас немає доступних атак. Перевірте ваші атаки командою ❓ Перевірити атаки")
+                    return
+                
+                # Перевіряємо чи немає вже активної атаки для цього користувача (в private чатах chat_id == user_id)
+                if active_attacks.get(chat_id, False):
+                    await message.answer("⏳ У вас вже активна атака. Зачекайте поки вона завершиться або зупиніть її.")
+                    return
+                
+                # Зменшуємо атаки: спочатку реферальні, потім промо, потім звичайні
+                kyiv_now = get_kyiv_datetime()
+                if referral_attacks > 0:
                     await conn.execute(
-                        'UPDATE users SET attacks_left = GREATEST(0, COALESCE(attacks_left, 0) - 1), last_attack_date = $1 WHERE user_id = $2',
-                        get_kyiv_datetime(), user_id
+                        'UPDATE users SET referral_attacks = GREATEST(0, COALESCE(referral_attacks, 0) - 1), last_attack_date = $1 WHERE user_id = $2',
+                        kyiv_now, user_id
                     )
                     # Перевіряємо що зміни застосувалися
-                    new_value = await conn.fetchval('SELECT attacks_left FROM users WHERE user_id = $1', user_id)
-                    logging.info(f"Списано 1 звичайну атаку для user_id={user_id}, було: {attacks_left}, стало: {new_value}")
+                    new_value = await conn.fetchval('SELECT referral_attacks FROM users WHERE user_id = $1', user_id)
+                    logging.info(f"Списано 1 реферальну атаку для user_id={user_id}, було: {referral_attacks}, стало: {new_value}")
+                elif promo_attacks > 0:
+                    await conn.execute(
+                        'UPDATE users SET promo_attacks = GREATEST(0, COALESCE(promo_attacks, 0) - 1), last_attack_date = $1 WHERE user_id = $2',
+                        kyiv_now, user_id
+                    )
+                    # Перевіряємо що зміни застосувалися
+                    new_value = await conn.fetchval('SELECT promo_attacks FROM users WHERE user_id = $1', user_id)
+                    logging.info(f"Списано 1 промо атаку для user_id={user_id}, було: {promo_attacks}, стало: {new_value}")
                 else:
-                    logging.error(f"КРИТИЧНА ПОМИЛКА: total_attacks={total_attacks} > 0, але всі типи атак = 0! (attacks_left={attacks_left}, promo_attacks={promo_attacks}, referral_attacks={referral_attacks})")
-                    await message.answer("❌ Помилка при списанні атак. Зверніться до адміністратора.")
-                    return
+                    # Якщо реферальних і промо немає (або = 0), списуємо звичайні
+                    # Перевіряємо чи є звичайні атаки (вони мають бути, бо total_attacks > 0)
+                    if attacks_left > 0:
+                        await conn.execute(
+                            'UPDATE users SET attacks_left = GREATEST(0, COALESCE(attacks_left, 0) - 1), last_attack_date = $1 WHERE user_id = $2',
+                            kyiv_now, user_id
+                        )
+                        # Перевіряємо що зміни застосувалися
+                        new_value = await conn.fetchval('SELECT attacks_left FROM users WHERE user_id = $1', user_id)
+                        logging.info(f"Списано 1 звичайну атаку для user_id={user_id}, було: {attacks_left}, стало: {new_value}")
+                    else:
+                        logging.error(f"КРИТИЧНА ПОМИЛКА: total_attacks={total_attacks} > 0, але всі типи атак = 0! (attacks_left={attacks_left}, promo_attacks={promo_attacks}, referral_attacks={referral_attacks})")
+                        await message.answer("❌ Помилка при списанні атак. Зверніться до адміністратора.")
+                        return
         
         # Позначаємо що атака активна для цього користувача (в private чатах chat_id == user_id)
         active_attacks[chat_id] = True
@@ -2167,7 +2232,7 @@ async def reset_daily_attacks():
             updated_count = await conn.execute(
                 """
                 UPDATE users 
-                SET attacks_left = 30, 
+                SET attacks_left = 20, 
                     referral_attacks = 0, 
                     unused_referral_attacks = 0, 
                     last_attack_date = $1
@@ -2250,8 +2315,8 @@ async def check_attack_limits(user_id: int):
         # Перевіряємо, чи потрібно скинути атаки на новий день
         if last_attack_date_only != today:
             # Реферальні атаки скидаються (вони дійсні тільки на один день)
-            # Скидаємо звичайні атаки на 30 (максимум на день)
-            new_attacks = 30
+            # Скидаємо звичайні атаки на 20 (максимум на день)
+            new_attacks = 20
             kyiv_now = get_kyiv_datetime()
             await conn.execute(
                 "UPDATE users SET attacks_left = $1, referral_attacks = 0, unused_referral_attacks = 0, last_attack_date = $2 WHERE user_id = $3",
@@ -2261,9 +2326,9 @@ async def check_attack_limits(user_id: int):
             referral_attacks = 0
             unused_referral_attacks = 0
         elif attacks_left is None or attacks_left < 0:
-            # Якщо значення NULL або негативне - встановлюємо 30
+            # Якщо значення NULL або негативне - встановлюємо 20
             # Це виправляє ситуації, коли в базі було некоректне значення
-            new_attacks = 30
+            new_attacks = 20
             await conn.execute(
                 "UPDATE users SET attacks_left = $1 WHERE user_id = $2",
                 new_attacks, user_id
@@ -2666,9 +2731,11 @@ async def process_referral(referrer_id, user_id, username, name):
             
             # Додаємо +10 атак запросившому (використовуємо COALESCE для обробки NULL)
             # ВАЖЛИВО: оновлюємо last_attack_date, щоб атаки не скинулись при перевірці
+            # Додаємо атаки до referral_attacks (щоденні) та unused_referral_attacks (накопичені)
             result_referrer = await conn.execute(
                 '''UPDATE users 
                    SET referral_attacks = COALESCE(referral_attacks, 0) + 10, 
+                       unused_referral_attacks = COALESCE(unused_referral_attacks, 0) + 10,
                        referral_count = COALESCE(referral_count, 0) + 1,
                        last_attack_date = $2
                    WHERE user_id = $1''',
@@ -2681,6 +2748,7 @@ async def process_referral(referrer_id, user_id, username, name):
             result_referred = await conn.execute(
                 '''UPDATE users 
                    SET referral_attacks = COALESCE(referral_attacks, 0) + 10,
+                       unused_referral_attacks = COALESCE(unused_referral_attacks, 0) + 10,
                        last_attack_date = $2
                    WHERE user_id = $1''',
                 user_id, kyiv_now
