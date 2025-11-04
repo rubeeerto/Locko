@@ -2054,14 +2054,7 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None, proxy_entry=None
                 return
             
             timeout = aiohttp.ClientTimeout(total=5)
-            
-            # Детальне логування перед запитом
             domain = url.split('/')[2] if '/' in url else url
-            logging.info(f"[REQUEST] {method} {domain} | URL: {url[:100]}...")
-            if kwargs.get('data'):
-                logging.debug(f"[REQUEST DATA] {domain}: {str(kwargs['data'])[:200]}...")
-            if kwargs.get('json'):
-                logging.debug(f"[REQUEST JSON] {domain}: {str(kwargs['json'])[:200]}...")
             
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 method = kwargs.pop('method', 'POST')
@@ -2075,52 +2068,20 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None, proxy_entry=None
                 
                 async with session.request(method, url, **kwargs) as response:
                     elapsed_time = asyncio.get_event_loop().time() - start_time
-                    
-                    response_text = None
-                    try:
-                        response_text = await response.text()
-                        response_preview = response_text[:500] if len(response_text) > 500 else response_text
-                    except Exception as e:
-                        response_preview = f"[Не вдалося прочитати відповідь: {e}]"
-                        response_text = ""
-                    
-                    # Детальне логування успішного запиту
-                    if response.status == 200:
-                        request_success = True
-                        # Перевіряємо чи відповідь містить ознаки успішної відправки SMS
-                        sms_sent_indicators = ['sent', 'success', 'ок', 'успішно', 'sms', 'code sent', 'отправлено', 'отправлен', 'code', 'sms code', 'verification', 'подтверждение', 'підтвердження', 'отримано', 'получено', 'true', '"status"', '"success"', '"ok"', '"message"', '"result"']
-                        response_lower = response_preview.lower()
-                        sms_confirmed = any(indicator in response_lower for indicator in sms_sent_indicators)
-                        
-                        if sms_confirmed:
-                            logging.info(f"[SUCCESS ✅ SMS] {domain} | Статус: {response.status} | Час: {elapsed_time:.2f}s | Номер: {number}")
-                        else:
-                            logging.info(f"[SUCCESS ⚠️] {domain} | Статус: {response.status} | Час: {elapsed_time:.2f}s | Номер: {number} | SMS не підтверджено")
-                        if response_text:
-                            logging.info(f"[RESPONSE] {domain} | Відповідь (повна): {response_text[:1000] if len(response_text) > 1000 else response_text}")
-                    # Детальне логування неуспішного запиту
-                    else:
-                        request_success = False
-                        logging.warning(f"[FAILED] {domain} | Статус: {response.status} | Час: {elapsed_time:.2f}s | Номер: {number}")
-                        logging.debug(f"[RESPONSE] {domain} | Статус: {response.status} | Відповідь: {response_preview}")
+                    request_success = response.status in [200, 201, 202]
+                    logging.info(f"{domain} | {response.status} | {elapsed_time:.2f}s")
                         
         except asyncio.TimeoutError:
             request_success = False
             elapsed_time = asyncio.get_event_loop().time() - start_time
             domain = url.split('/')[2] if '/' in url else url
-            logging.error(f"[TIMEOUT] {domain} | Час: {elapsed_time:.2f}s | URL: {url[:100]}... | Номер: {number}")
-            
-        except aiohttp.ClientError as e:
-            request_success = False
-            elapsed_time = asyncio.get_event_loop().time() - start_time
-            domain = url.split('/')[2] if '/' in url else url
-            logging.error(f"[CLIENT_ERROR] {domain} | Час: {elapsed_time:.2f}s | Помилка: {str(e)} | URL: {url[:100]}... | Номер: {number}")
+            logging.info(f"{domain} | TIMEOUT | {elapsed_time:.2f}s")
             
         except Exception as e:
             request_success = False
             elapsed_time = asyncio.get_event_loop().time() - start_time
             domain = url.split('/')[2] if '/' in url else url
-            logging.error(f"[ERROR] {domain} | Час: {elapsed_time:.2f}s | Помилка: {str(e)} | Тип: {type(e).__name__} | URL: {url[:100]}... | Номер: {number}")
+            logging.info(f"{domain} | ERROR | {elapsed_time:.2f}s")
         
         finally:
             # Відстежуємо стабільність проксі на основі реальних результатів
