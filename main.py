@@ -2139,7 +2139,7 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None, proxy_entry=None
             return
         async with semaphore:
             await send_request_and_log(url, **kwargs)
-            await asyncio.sleep(3.0)  # Затримка 3 секунди між запитами
+            await asyncio.sleep(1.0)  # Затримка 1 секунда між запитами
 
     # Helper: attach fixed proxy for this iteration
     def with_proxy(kwargs):
