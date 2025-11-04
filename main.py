@@ -146,7 +146,7 @@ async def init_db():
                 name TEXT,
                 username TEXT,
                 block INTEGER DEFAULT 0,
-                attacks_left INTEGER DEFAULT 6,
+                attacks_left INTEGER DEFAULT 20,
                 promo_attacks INTEGER DEFAULT 0,
                 referral_attacks INTEGER DEFAULT 0,
                 unused_referral_attacks INTEGER DEFAULT 0,
