@@ -2139,6 +2139,7 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None, proxy_entry=None
             return
         async with semaphore:
             await send_request_and_log(url, **kwargs)
+            await asyncio.sleep(3.0)  # Затримка 3 секунди між запитами
 
     # Helper: attach fixed proxy for this iteration
     def with_proxy(kwargs):
@@ -2275,7 +2276,7 @@ async def start_attack(number, chat_id):
                 except Exception:
                     pass
                 return
-            await asyncio.sleep(10.0)  # Затримка 10 секунд між циклами (після повного завершення атаки)
+            await asyncio.sleep(4.0)  # Затримка 4 секунди між циклами (після повного завершення атаки)
             
     except asyncio.CancelledError:
         try:
