@@ -146,7 +146,7 @@ async def init_db():
                 name TEXT,
                 username TEXT,
                 block INTEGER DEFAULT 0,
-                attacks_left INTEGER DEFAULT 10,
+                attacks_left INTEGER DEFAULT 5,
                 promo_attacks INTEGER DEFAULT 0,
                 referral_attacks INTEGER DEFAULT 0,
                 unused_referral_attacks INTEGER DEFAULT 0,
@@ -702,7 +702,7 @@ async def add_user(user_id: int, name: str, username: str, referrer_id: int = No
     async with db_pool.acquire() as conn:
         await conn.execute(
             'INSERT INTO users (user_id, name, username, block, attacks_left, promo_attacks, referral_attacks, unused_referral_attacks, last_attack_date, referrer_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (user_id) DO NOTHING',
-            user_id, name, username, 0, 10, 0, 0, 0, today, referrer_id
+            user_id, name, username, 0, 5, 0, 0, 0, today, referrer_id
         )
         
         if referrer_id:
@@ -2460,7 +2460,7 @@ async def reset_daily_attacks():
             updated_count = await conn.execute(
                 """
                 UPDATE users 
-                SET attacks_left = 10, 
+                SET attacks_left = 5, 
                     referral_attacks = 0, 
                     unused_referral_attacks = 0, 
                     last_attack_date = $1
